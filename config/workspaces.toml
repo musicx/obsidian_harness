@@ -1,0 +1,7 @@
+# Registered workspaces. Values come from the environment (.env); see .env.sample.
+
+[workspaces.vault]
+remote = "${WORKSHEET_VAULT_REMOTE}"
+branch = "${WORKSHEET_VAULT_BRANCH}"
+bot_name = "${WORKSHEET_BOT_NAME}"
+bot_email = "${WORKSHEET_BOT_EMAIL}"
