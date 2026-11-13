@@ -1,0 +1,34 @@
+# Briefing feeds on the Oracle host: daily/weekly digests generated on this machine, imported into briefings/.
+# Selected with WORKSHEET_FEEDS_FILE=deploy/oracle/feeds.toml; `????-??-??.json` skips index.json.
+
+[feeds.x-digest]
+title = "英文推特精选"
+source = "${WORKSHEET_DIGEST_DATA_DIR}"
+pattern = "????-??-??.json"
+cadence = "daily"
+url = "${WORKSHEET_SITE_URL}/news/x/?d={date}"
+since = "${WORKSHEET_FEED_SINCE}"
+
+[feeds.build]
+title = "Build 简报"
+source = "${WORKSHEET_DIGEST_DATA_DIR}/build"
+pattern = "????-??-??.json"
+cadence = "daily"
+url = "${WORKSHEET_SITE_URL}/news/build/?d={date}"
+since = "${WORKSHEET_FEED_SINCE}"
+
+[feeds.buyers]
+title = "Buyers Voice"
+source = "${WORKSHEET_DIGEST_DATA_DIR}/buyers"
+pattern = "????-??-??.json"
+cadence = "daily"
+url = "${WORKSHEET_SITE_URL}/news/buyers/?d={date}"
+since = "${WORKSHEET_FEED_SINCE}"
+
+[feeds.forum]
+title = "Forum 周报"
+source = "${WORKSHEET_DIGEST_DATA_DIR}/forum"
+pattern = "????-??-??.json"
+cadence = "weekly"
+url = "${WORKSHEET_SITE_URL}/news/forum/?d={date}"
+since = "${WORKSHEET_FEED_SINCE}"

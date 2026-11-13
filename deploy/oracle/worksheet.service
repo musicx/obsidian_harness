@@ -1,0 +1,16 @@
+# systemd unit for the always-on engine on the Oracle host (reads /opt/worksheet/.env, see env.sample).
+# Install: sudo cp deploy/oracle/worksheet.service /etc/systemd/system/ && sudo systemctl enable --now worksheet
+[Unit]
+Description=work_sheet engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/opt/worksheet
+ExecStart=/usr/local/bin/uv run worksheet run --interval 120
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

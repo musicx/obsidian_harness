@@ -1,0 +1,25 @@
+# Runners for the Oracle Linux host: pi CLI with Claude models, DeepSeek as the fallback when Claude fails.
+# Selected with WORKSHEET_RUNNERS_FILE=deploy/oracle/runners.toml; every command goes through run-as-agent.sh.
+# There is no `web` runner on this host yet, so skills of the researcher role are not offered to the dispatcher.
+
+[runners.small]
+command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--no-session", "--no-context-files",
+           "--no-skills", "--no-extensions", "--no-tools", "--model", "${WORKSHEET_SMALL_MODEL}",
+           "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
+fallback = "fallback_small"
+
+[runners.strong]
+command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--no-session", "--no-context-files",
+           "--no-skills", "--no-extensions", "--tools", "read,grep,find,ls,edit,write",
+           "--model", "${WORKSHEET_STRONG_MODEL}", "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
+fallback = "fallback_strong"
+
+[runners.fallback_small]
+command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--no-session", "--no-context-files",
+           "--no-skills", "--no-extensions", "--no-tools", "--model", "${WORKSHEET_FALLBACK_MODEL}",
+           "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
+
+[runners.fallback_strong]
+command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--no-session", "--no-context-files",
+           "--no-skills", "--no-extensions", "--tools", "read,grep,find,ls,edit,write",
+           "--model", "${WORKSHEET_FALLBACK_MODEL}", "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
