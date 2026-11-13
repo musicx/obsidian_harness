@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from work_sheet import cli
+from work_sheet.config import load_config
+from work_sheet.generated import regenerate
 from work_sheet.vault import parse_frontmatter
 
 FAKES = Path(__file__).parent / "fakes"
@@ -41,7 +43,6 @@ TRACKER_ROLE = """---
 id: tracker
 description: 维护项目记录
 runner: strong
-needs_project: true
 read: ["{thread}", "{context}", "projects/_index.md", "projects/{project}/**"]
 write: ["projects/_index.md", "projects/{project}/**"]
 timeout_minutes: 1
@@ -60,15 +61,39 @@ timeout_minutes: 1
 You are the researcher.
 """
 
+SKILLS = {
+    "ingest": ("把一份材料收录进知识库", "role: librarian\n  context: names candidates health changes\n"
+               "  uses: wiki-style\n  dedupe: source", "INGEST PROCEDURE: summarise the source."),
+    "restructure": ("重组已有页面", "role: librarian\n  allow_shrink: \"true\"", "RESTRUCTURE PROCEDURE"),
+    "digest": ("跨项目摘要", "role: librarian\n  read: \"projects/*/status.md\"", "DIGEST PROCEDURE"),
+    "update-project": ("更新项目记录", "role: tracker\n  needs_project: \"true\"", "UPDATE PROCEDURE"),
+    "research": ("联网搜集资料", "role: researcher", "RESEARCH PROCEDURE"),
+    "wiki-style": ("知识页写法（共用）", "{}", "WIKI STYLE RULES"),
+}
+
+
+def write_skills(skills_dir: Path) -> None:
+    for name, (description, metadata, body) in SKILLS.items():
+        folder = skills_dir / name
+        folder.mkdir(parents=True)
+        metadata = f"metadata: {metadata}" if metadata == "{}" else f"metadata:\n  {metadata}"
+        (folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n{metadata}\n---\n{body}\n")
+    (skills_dir / "wiki-style" / "references").mkdir()
+    (skills_dir / "wiki-style" / "references" / "example.md").write_text("示例页面\n")
+
+
+def make_config(tmp: Path):
+    return load_config(tmp / "config", tmp / "roles", tmp / "skills", tmp / "state", None, tmp / "vault-template")
+
 
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
-def register(*, capture: list[str], title: str = "收录样例文章") -> dict:
+def register(*, capture: list[str], title: str = "收录样例文章", skill: str = "ingest") -> dict:
     return {"action": "register", "reason": "用户要求收录",
-            "tasks": [{"role": "librarian", "op": "ingest", "title": title, "brief": "收录这篇材料。",
-                       "capture": capture, "project": None}]}
+            "tasks": [{"skill": skill, "title": title, "brief": "收录这篇材料。", "capture": capture,
+                       "project": None}]}
 
 
 @dataclass
@@ -91,10 +116,14 @@ class Env:
         counter = self.dispatch.with_suffix(".count")
         return int(counter.read_text()) if counter.exists() else 0
 
-    def push(self, files: dict[str, str]) -> None:
+    def push(self, files: dict[str, str], regenerated: bool = True) -> None:
+        """Commit and push files as the human; by default with the generated indexes already up to date,
+        as they are after the engine's own commits, so the engine has nothing to scaffold."""
         for rel, text in files.items():
             (self.human / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.human / rel).write_text(text)
+        if regenerated:
+            regenerate(self.human)
         git(self.human, "add", "-A")
         git(self.human, "commit", "-m", "human edit")
         git(self.human, "push", "origin", "HEAD:main")
@@ -103,8 +132,12 @@ class Env:
         git(self.human, "pull", "--rebase", "origin", "main")
 
     def tick(self) -> None:
-        cli.main(["tick", "--config-dir", str(self.tmp / "config"), "--roles-dir", str(self.tmp / "roles"),
-                  "--state-dir", str(self.state)])
+        cli.main(["tick", *self.dirs()])
+
+    def dirs(self) -> list[str]:
+        return ["--config-dir", str(self.tmp / "config"), "--roles-dir", str(self.tmp / "roles"),
+                "--skills-dir", str(self.tmp / "skills"), "--vault-template-dir", str(self.tmp / "vault-template"),
+                "--state-dir", str(self.state)]
 
     def remote_head(self) -> str:
         return git(self.remote, "rev-parse", "main").strip()
@@ -152,6 +185,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Env:
     (roles / "librarian.md").write_text(LIBRARIAN_ROLE)
     (roles / "tracker.md").write_text(TRACKER_ROLE)
     (roles / "researcher.md").write_text(RESEARCHER_ROLE)
+    write_skills(tmp_path / "skills")
 
     e = Env(tmp=tmp_path, remote=remote, human=human, state=tmp_path / "state",
             dispatch=tmp_path / "dispatch.json", listing=tmp_path / "listing.txt")

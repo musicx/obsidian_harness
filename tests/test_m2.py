@@ -1,15 +1,14 @@
 import json
 
 import pytest
-from conftest import Env, register
+from conftest import Env, make_config, register
 from test_engine import article, last_block
 from test_m1 import decide, subjects_since, task_meta
 
-from work_sheet.config import load_config
 from work_sheet.dispatch import InvalidDecision
 
 RESEARCH = {"action": "register", "reason": "需要扩展",
-            "tasks": [{"role": "researcher", "op": "research", "title": "搜集资料", "brief": "围绕 X 搜集", "capture": []}]}
+            "tasks": [{"skill": "research", "title": "搜集资料", "brief": "围绕 X 搜集", "capture": []}]}
 
 
 @pytest.fixture
@@ -47,7 +46,7 @@ def test_relay_registers_child_and_runs_it(researching: Env):
     prompt = (env.state / "vault" / "runs" / "dispatch-2" / "prompt.md").read_text()
     assert "## New from the human\n\n(none)\n" in prompt
     assert prompt.index("# Existing tasks") < prompt.index("# Finished task") < prompt.index("# Projects")
-    assert f"# Finished task\n\n- id: {rid}\n- role: researcher\n- title: 搜集资料\n" in prompt
+    assert f"# Finished task\n\n- id: {rid}\n- skill: research\n- role: researcher\n- title: 搜集资料\n" in prompt
     assert "## Report summary\n\n找到 1 份资料。\n" in prompt
     assert "已找到资料，可以收录" in prompt and f"## Capture requests\n\n- {src}\n" in prompt
 
@@ -77,15 +76,15 @@ def test_relay_cannot_grant(researching: Env):
 
 
 def test_decision_validation_capture_and_grant(env: Env):
-    cfg = load_config(env.tmp / "config", env.tmp / "roles", env.state, None)
+    cfg = make_config(env.tmp)
     with pytest.raises(InvalidDecision, match="capture 最多 10 项"):
         decide(cfg, {"capture": [f"/x/{i}.md" for i in range(11)]}, [])
     with pytest.raises(InvalidDecision, match="capture_mode"):
         decide(cfg, {"capture_mode": "some"}, [])
     assert decide(cfg, {}, [])["tasks"][0]["capture_mode"] == "all"
     with pytest.raises(InvalidDecision, match="角色 librarian 不能被授予 inbox/x.md"):
-        decide(cfg, {"role": "librarian", "grant": ["inbox/x.md"]}, [])
-    assert decide(cfg, {"role": "librarian", "grant": ["practice/新.md"]}, [])["tasks"][0]["grant"]
+        decide(cfg, {"skill": "ingest", "grant": ["inbox/x.md"]}, [])
+    assert decide(cfg, {"skill": "ingest", "grant": ["practice/新.md"]}, [])["tasks"][0]["grant"]
 
 
 def run_decision(env: Env, decision: dict) -> dict:
@@ -104,7 +103,7 @@ def test_capture_any_runs_with_partial_material(seeded: Env):
     assert task["status"] == "done" and len(task["context"]) == 1 and task["capture_mode"] == "any"
     assert task["capture_failed"] == ["/nonexistent/x.md：找不到文件"]
     brief = seeded.listing.with_suffix(".brief.md").read_text()
-    assert "\n- 采集失败的材料：\n  - /nonexistent/x.md：找不到文件\n- 可写范围：" in brief
+    assert "\n- 采集失败的材料：\n  - /nonexistent/x.md：找不到文件\n- 共用规范：" in brief
     assert ">\n> 未能采集：/nonexistent/x.md\n> 新建：" in seeded.text("inbox/a.md")
 
 
@@ -137,7 +136,7 @@ def test_without_grant_practice_write_is_out_of_scope(seeded: Env, monkeypatch):
     assert last_block(seeded.text("inbox/a.md"))[1] == "> 写入越界：practice/新做法.md"
 
 
-PRACTICE = "---\ntype: practice\nowner: human\n---\n原文。\n"
+PRACTICE = "---\ntype: practice\nowner: human\ndescription: 现有做法\n---\n原文。\n"
 PROPOSAL = '---\ntype: proposal\ntarget: "[[现有做法]]"\nstatus: proposed\n---\n| # | 建议 |\n'
 
 

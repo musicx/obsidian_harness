@@ -42,7 +42,7 @@ def test_config_expands_env_references(tmp_path, monkeypatch):
     config = write_config(tmp_path, '[runners.strong]\n'
                           'command = ["pi", "--model", "${WS_MODEL}", "@{prompt_file}", "$HOME", "{view}"]\n'
                           'env = { MODEL_HINT = "use-${WS_MODEL}-now" }\n')
-    cfg = load_config(config, tmp_path / "roles", tmp_path / "state", None)
+    cfg = load_config(config, tmp_path / "roles", tmp_path / "skills", tmp_path / "state", None, tmp_path / "vt")
     assert cfg.remote == "git@example.com:me/vault.git"
     assert cfg.runners["strong"].command == ["pi", "--model", "provider/model-x", "@{prompt_file}", "$HOME", "{view}"]
     assert cfg.runners["strong"].env == {"MODEL_HINT": "use-provider/model-x-now"}
@@ -53,7 +53,7 @@ def test_undefined_env_reference_aborts(tmp_path, monkeypatch):
     forget(monkeypatch, "WS_MISSING")
     config = write_config(tmp_path, '[runners.strong]\ncommand = ["pi", "${WS_MISSING}"]\n')
     with pytest.raises(SystemExit, match=r"runners\.toml: environment variable WS_MISSING is not set \(see \.env\.sample\)"):
-        load_config(config, tmp_path / "roles", tmp_path / "state", None)
+        load_config(config, tmp_path / "roles", tmp_path / "skills", tmp_path / "state", None, tmp_path / "vt")
 
 
 def test_cli_defaults_from_environment_and_dotenv(seeded: Env, monkeypatch):

@@ -1,10 +1,9 @@
 import json
 
 import pytest
-from conftest import Env, git, register
+from conftest import Env, git, make_config, register
 from test_engine import article, last_block, run_failing
 
-from work_sheet.config import load_config
 from work_sheet.dispatch import InvalidDecision, parse_decision
 from work_sheet.engine import STALE_RUNNING
 from work_sheet.vault import parse_frontmatter
@@ -42,30 +41,30 @@ def test_followup_with_parent(seeded: Env):
 
     second = env.new_tasks()[1]
     assert second["parent"] == first["id"] and second["depth"] == 1 and second["status"] == "done"
-    assert "wiki/log.md" in second["outputs"]  # appended to the existing log
+    assert second["outputs"] == []  # the follow-up rewrote the same pages unchanged
     prompt = (env.state / "vault" / "runs" / "dispatch-2" / "prompt.md").read_text()
-    assert f"- {first['id']} · librarian · done · 收录样例文章\n  - wiki/concepts/概念甲.md\n" in prompt
+    assert f"- {first['id']} · ingest（librarian） · done · 收录样例文章\n  - wiki/concepts/概念甲.md\n" in prompt
 
 
 def decide(cfg, task: dict, existing: list[dict]) -> dict:
-    base = {"role": "tracker", "op": "update", "title": "t", "brief": "b", "capture": [], "project": "alpha"}
+    base = {"skill": "update-project", "title": "t", "brief": "b", "capture": [], "project": "alpha"}
     return parse_decision(json.dumps({"action": "register", "reason": "r", "tasks": [base | task]}), cfg, existing)
 
 
 def test_decision_validation_parent_and_project(env: Env):
-    cfg = load_config(env.tmp / "config", env.tmp / "roles", env.state, None)
+    cfg = make_config(env.tmp)
     existing = [{"id": "T-1", "depth": 0}, {"id": "T-5", "depth": 5}]
     assert decide(cfg, {"parent": "T-1"}, existing)["tasks"][0]["depth"] == 1
     with pytest.raises(InvalidDecision, match="不是本线程已有的任务"):
         decide(cfg, {"parent": "T-9"}, existing)
     with pytest.raises(InvalidDecision, match="接力深度超过上限"):
         decide(cfg, {"parent": "T-5"}, existing)
-    with pytest.raises(InvalidDecision, match="角色 tracker 需要指定 project"):
+    with pytest.raises(InvalidDecision, match="skill update-project 需要指定 project"):
         decide(cfg, {"project": None}, existing)
     for bad in ["", "a/b", "a\\b", ".hidden", 3]:
         with pytest.raises(InvalidDecision, match="project"):
             decide(cfg, {"project": bad}, existing)
-    assert decide(cfg, {"role": "librarian", "project": None}, existing)["tasks"][0]["role"] == "librarian"
+    assert decide(cfg, {"skill": "ingest", "project": None}, existing)["tasks"][0]["role"] == "librarian"
 
 
 def test_reconcile_stale_running_and_ready_question(seeded: Env):
@@ -159,25 +158,30 @@ def test_two_tasks_have_independent_outcomes(seeded: Env):
     assert f"> [!task] [[{missing['id']}]] · librarian · blocked\n> 材料采集失败：/nonexistent/x.md：找不到文件" in page
 
 
-def test_log_md_is_append_only(seeded: Env, monkeypatch):
-    seeded.push({"wiki/log.md": "## [2026-11-01] ingest | 旧\n"})
-    task = run_failing(seeded, "logrewrite", monkeypatch)
-    assert task["status"] == "failed"
-    assert "> wiki/log.md 只能追加，不能改动已有内容" in last_block(seeded.text("inbox/a.md"))
-    assert seeded.text("wiki/log.md") == "## [2026-11-01] ingest | 旧\n"
-
-
-def test_project_status_frontmatter_required(seeded: Env, monkeypatch):
-    env = seeded
-    monkeypatch.setenv("WS_MODE", "status_missing")
-    decision = register(capture=[])
-    decision["tasks"][0] |= {"role": "tracker", "project": "alpha"}
+def run_tracker(env: Env, mode: str, monkeypatch) -> dict:
+    monkeypatch.setenv("WS_MODE", mode)
+    decision = register(capture=[], skill="update-project")
+    decision["tasks"][0]["project"] = "alpha"
     env.push({"inbox/a.md": "更新 alpha 项目\n"})
     env.respond(decision)
     env.tick()
     env.pull()
     [task] = env.new_tasks()
-    assert task["status"] == "failed" and task["project"] == "alpha"
+    return task
+
+
+def test_project_log_md_is_append_only(seeded: Env, monkeypatch):
+    seeded.push({"projects/alpha/log.md": "## 2026-11-01 旧记录\n"})
+    task = run_tracker(seeded, "projlog_rewrite", monkeypatch)
+    assert task["status"] == "failed"
+    assert "> projects/alpha/log.md 只能追加，不能改动已有内容" in last_block(seeded.text("inbox/a.md"))
+    assert seeded.text("projects/alpha/log.md") == "## 2026-11-01 旧记录\n"
+
+
+def test_project_status_frontmatter_required(seeded: Env, monkeypatch):
+    env = seeded
+    task = run_tracker(env, "status_missing", monkeypatch)
+    assert task["status"] == "failed" and task["project"] == "alpha" and task["role"] == "tracker"
     assert "> projects/alpha/status.md 缺少必填的 frontmatter（type/project/as_of）" in last_block(
         env.text("inbox/a.md"))
     assert not (env.human / "projects").exists()
