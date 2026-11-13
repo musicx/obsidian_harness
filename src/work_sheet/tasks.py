@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+import os
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from work_sheet.context import query_text, write_packs
 from work_sheet.feeds import is_recent
 from work_sheet.generated import append_log, regenerate
 from work_sheet.gitops import commit, push, tracked_files
-from work_sheet.lint import frontmatter_of, lint
+from work_sheet.lint import frontmatter_of, lint, normalize_sql
 from work_sheet.runner import run_runner
 from work_sheet.usage import Ledger, RunResult, add_up, describe
 from work_sheet.vault import (add_log, brief_of, is_generated, now, page_link, parse_frontmatter, raw_dir,
@@ -28,7 +29,8 @@ TASK_PROMPT = ("阅读当前目录下的 _brief.md 并完成任务。操作规�
                "结束前按 _brief.md 的格式写好 _report.md。")
 ENGINE_FILES = {"_brief.md", "_report.md", "_feedback.md"}
 REPAIR_PROMPT = "上一次的产出没有通过检查，问题列在 _feedback.md。只修正这些问题，不要改动其他内容；修正后更新 _report.md。"
-ENGINE_DIRS = ("_skill/", "_skills/", "_context/", "_scratch/")  # _scratch/: the agent's working notes
+ENGINE_DIRS = ("_skill/", "_skills/", "_context/", "_scratch/", ".pi/")  # _scratch/: the agent's working notes
+DATATOOL = Path(__file__).with_name("datatool.py")
 PROTECTED = ("raw/", "tasks/", "inbox/", "briefings/")
 MAX_SUMMARY = 600
 CONFLICT = "与远端的改动冲突，产出未导入"
@@ -39,7 +41,7 @@ BRIEF = """# 任务 {id}：{title}
 - 操作规程：_skill/SKILL.md（已附在提示中）
 - 线程页：{thread}
 - 本次材料：{context}
-{failed}{shared}{packs}- 可写范围：{write}
+{failed}{shared}{packs}{sources}- 可写范围：{write}
 
 ## 简报
 {brief}
@@ -83,14 +85,38 @@ def bullet(label: str, items: list[str]) -> str:
     return f"- {label}：" + "".join(f"\n  - {i}" for i in items) + "\n" if items else ""
 
 
-def render_brief(meta: dict, body: str, thread: str, write: list[str], shared: list[str], packs: list[str]) -> str:
+def render_brief(meta: dict, body: str, thread: str, write: list[str], shared: list[str], packs: list[str],
+                 sources: list[str]) -> str:
     context = "".join(f"\n  - {d}" for d in meta.get("context") or []) or "（无）"
     return BRIEF.format(id=meta["id"], title=meta["title"], today=f"{now():%Y-%m-%d}", thread=thread,
                         context=context,
                         failed=bullet("采集失败的材料", meta.get("capture_failed") or []),
                         shared=bullet("共用规范", [f"_skills/{s}/SKILL.md" for s in shared]),
                         packs=bullet("参考资料", [f"_context/{p}" for p in packs]),
+                        sources=f"- 数据源：{'、'.join(sources)}（通过查询工具 wsdata 访问：list_tables / describe_table / query）\n"
+                        if sources else "",
                         write="、".join(write), brief=brief_of(body))
+
+
+def mount_datatool(cfg: Config, view: Path, sources: list[str]) -> None:
+    """Give the run the read-only query tool for these data sources (pi reads the view's .pi/mcp.json)."""
+    scratch = view / "_scratch"
+    scratch.mkdir(exist_ok=True)
+    config = scratch / "datatool.json"
+    config.write_text(json.dumps({"sources": {name: cfg.datasources[name] for name in sources},
+                                  "log": str(scratch / "queries.jsonl")}, ensure_ascii=False, indent=2))
+    (view / ".pi").mkdir(exist_ok=True)
+    server = {"command": os.environ.get("WORKSHEET_DATATOOL_PYTHON", "python3"), "args": [str(DATATOOL)],
+              # direct: declared to the model like a built-in tool, so a print-mode run can call it
+              "env": {"WS_DATATOOL_CONFIG": str(config)}, "exposure": "direct"}
+    (view / ".pi" / "mcp.json").write_text(json.dumps({"mcpServers": {"wsdata": server}}, indent=2))
+
+
+def executed_queries(view: Path) -> set[str]:
+    """The successful queries of this run, normalized for comparison with the SQL in the agent's notes."""
+    log_file = view / "_scratch" / "queries.jsonl"
+    entries = [json.loads(line) for line in log_file.read_text().splitlines() if line.strip()] if log_file.exists() else []
+    return {normalize_sql(e["sql"]) for e in entries if e.get("ok")}
 
 
 def engine_owned(path: str) -> bool:
@@ -159,6 +185,9 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
     read_patterns = (expand(role.read + skill.read, meta, thread) + grant
                      + ([meta["proposal"]] if meta.get("proposal") else []))
     write_patterns = expand(role.write, meta, thread) + grant
+    sources = meta.get("resources") or []  # a task's resources name the data sources it queries
+    if missing := [name for name in sources if name not in cfg.datasources]:
+        return Outcome("failed", f"这台机器没有配置数据源 {missing[0]}")
     tracked = tracked_files(cfg)
     view = Path(tempfile.mkdtemp(prefix="worksheet-"))
 
@@ -176,7 +205,7 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
         tree = (set(tracked) | changed) - set(deleted)
         problems = lint(created, modified, tree,
                         lambda p: ((view if p in changed else root) / p).read_text(errors="replace"),
-                        lambda p: (root / p).read_text(errors="replace"), skill.allow_shrink)
+                        lambda p: (root / p).read_text(errors="replace"), skill.allow_shrink, executed_queries(view))
         return created, modified, deleted, "检查未通过：\n" + "\n".join(problems) if problems else None
 
     events = []
@@ -192,8 +221,8 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
 
         try:
             results, note = run_runner(cfg.runners, role.runner, role.prompt, prompt, view, run_dir,
-                                       role.timeout_minutes * 60, Ledger(cfg.usage_log, cfg.engine_id, kind, meta["id"], thread),
-                                       restore)
+                                       role.timeout_minutes * 60,
+                                       Ledger(cfg.usage_log, cfg.engine_id, kind, meta["id"], thread), restore)
         finally:
             shutil.rmtree(saved)
         runs.extend(results)
@@ -213,7 +242,9 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
             shutil.copytree(cfg.skills[name].dir, view / "_skills" / name)
         query = query_text(root, brief_of(body), thread, meta.get("context") or [])
         packs = write_packs(root, skill.context, view / "_context", query) if skill.context else []
-        (view / "_brief.md").write_text(render_brief(meta, body, thread, write_patterns, skill.uses, packs))
+        if sources:
+            mount_datatool(cfg, view, sources)
+        (view / "_brief.md").write_text(render_brief(meta, body, thread, write_patterns, skill.uses, packs, sources))
         prompt = f'{TASK_PROMPT}\n\n<skill name="{skill.name}" dir="_skill">\n{skill.body}\n</skill>\n'
         before = snapshot(view)
         run_dir = cfg.runs / meta["id"]
@@ -240,6 +271,8 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
             (root / path).unlink()
         return Outcome(status, summary, extras, created, modified, deleted, events)
     finally:
+        if (queries := view / "_scratch" / "queries.jsonl").exists():
+            shutil.copyfile(queries, cfg.runs / meta["id"] / "queries.jsonl")
         shutil.rmtree(view)
 
 

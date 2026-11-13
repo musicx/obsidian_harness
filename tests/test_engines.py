@@ -85,7 +85,7 @@ def test_routing_prompt_and_validation(engines: Engines):
     assert "- ingest（librarian）：把一份材料收录进知识库\n" in prompt
     assert "- research（researcher）：联网搜集资料；可运行于：mac\n" in prompt
     assert "- local-ingest（librarian）：收录本机文件；可运行于：mac\n" in prompt
-    assert '"force": false, "engine": null}' in prompt
+    assert '"force": false, "resources": [], "engine": null}' in prompt
     assert decide(cfg, {"skill": "ingest", "project": None}, [])["tasks"][0]["engine"] == "oracle"
     assert decide(cfg, {"skill": "ingest", "project": None, "engine": "mac"}, [])["tasks"][0]["engine"] == "mac"
     assert decide(cfg, {"skill": "local-ingest", "project": None}, [])["tasks"][0]["engine"] == "mac"

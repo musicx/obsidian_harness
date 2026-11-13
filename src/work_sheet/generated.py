@@ -72,6 +72,20 @@ def projects_index(root: Path) -> str:
             + "".join(row for _, row in sorted(rows)))
 
 
+def datasets_index(root: Path) -> str:
+    rows = []
+    for page in (root / "datasets").rglob("*.md"):
+        if page.name == "_index.md":
+            continue
+        meta, _ = read_meta(page.read_text(errors="replace"))
+        target = page.relative_to(root).as_posix().removesuffix(".md")
+        source, table = str(meta.get("source") or ""), str(meta.get("table") or page.stem)
+        description = str(meta.get("description") or "")
+        rows.append(((source.casefold(), table.casefold(), target),
+                     f"- [[{target}|{table}]]（{source}）" + (f"— {description}" if description else "") + "\n"))
+    return "# 数据字典\n\n" + "".join(row for _, row in sorted(rows))
+
+
 def write_if_dir_exists(root: Path, rel: str, text: str) -> None:
     """Indexes are only kept for directories the vault already has."""
     path = root / rel
@@ -87,6 +101,7 @@ def regenerate(root: Path) -> None:
                             f"# {title}\n\n" + "".join(entry(f"[[{p.name}]]", p.description) for p in members))
     write_if_dir_exists(root, "wiki/index.md", wiki_index(root, pages))
     write_if_dir_exists(root, "projects/_index.md", projects_index(root))
+    write_if_dir_exists(root, "datasets/_index.md", datasets_index(root))
 
 
 def append_log(root: Path, skill: str, title: str, created: list[str], modified: list[str],

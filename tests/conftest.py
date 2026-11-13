@@ -2,8 +2,11 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
@@ -207,3 +210,38 @@ def seeded(env: Env) -> Env:
         "wiki/index.md": "# 目录\n",
     })
     return env
+
+
+@dataclass
+class FakeClickHouse:
+    """A local stand-in for the ClickHouse HTTP interface: every POST is recorded and answered by `respond`."""
+    url: str
+    requests: list[dict] = field(default_factory=list)
+    respond: object = lambda sql, params: (200, "n\n42\n")  # (sql, url params) -> (status, body)
+
+
+@pytest.fixture
+def clickhouse():
+    def handler_for(fake: FakeClickHouse):
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                sql = self.rfile.read(int(self.headers["Content-Length"])).decode()
+                params = dict(parse_qsl(urlsplit(self.path).query))
+                fake.requests.append({"sql": sql, "params": params, "headers": {k.lower(): v for k, v in self.headers.items()}})
+                status, text = fake.respond(sql, params)
+                data = text.encode()
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+        return Handler
+
+    fake = FakeClickHouse("")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_for(fake))
+    fake.url = f"http://127.0.0.1:{server.server_port}"
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield fake
+    server.shutdown()

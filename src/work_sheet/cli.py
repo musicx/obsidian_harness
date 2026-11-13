@@ -57,6 +57,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="default: <config-dir>/runners.toml")
     common.add_argument("--feeds-file", type=Path, default=env("WORKSHEET_FEEDS_FILE"),
                         help="default: <config-dir>/feeds.toml (optional)")
+    common.add_argument("--datasources-file", type=Path, default=env("WORKSHEET_DATASOURCES_FILE"),
+                        help="data sources for the query tool; default: <config-dir>/datasources.toml (optional)")
     common.add_argument("--engines-file", type=Path, default=env("WORKSHEET_ENGINES_FILE"),
                         help="engine registry; default: <config-dir>/engines.toml (optional)")
     common.add_argument("--engine-id", default=env("WORKSHEET_ENGINE_ID"),
@@ -76,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg = load_config(args.config_dir, args.roles_dir, args.skills_dir, args.state_dir.resolve(), args.workspace,
                       args.vault_template_dir.resolve(), args.runners_file, args.feeds_file, args.engines_file,
-                      args.engine_id)
+                      args.engine_id, args.datasources_file)
     setup_logging(cfg.state_dir / "engine.log")
     if missing := [r for r in cfg.engines[cfg.engine_id].runners if r not in cfg.runners]:
         log.warning("engine %s lists runners missing from its runners file: %s", cfg.engine_id, ", ".join(missing))

@@ -155,12 +155,20 @@ def test_oracle_config_loads(env: Env, monkeypatch):
                         "WORKSHEET_STRONG_MODEL": "anthropic/claude-sonnet-5-5",
                         "WORKSHEET_FALLBACK_MODEL": "deepseek/deepseek-chat",
                         "WORKSHEET_DIGEST_DATA_DIR": "/srv/digest/www/data", "WORKSHEET_SITE_URL": "https://example.org",
-                        "WORKSHEET_FEED_SINCE": "2026-11-01"}.items():
+                        "WORKSHEET_FEED_SINCE": "2026-11-01", "WORKSHEET_CH_URL": "http://127.0.0.1:8123",
+                        "WORKSHEET_CH_DATABASE": "db_stock", "WORKSHEET_CH_USER": "web_ro",
+                        "WORKSHEET_CH_PASSWORD_FILE": "/etc/worksheet/ch-password"}.items():
         monkeypatch.setenv(name, value)
     cfg = load_config(env.tmp / "config", env.tmp / "roles", env.tmp / "skills", env.state, None,
-                      env.tmp / "vault-template", DEPLOY / "runners.toml", DEPLOY / "feeds.toml")
+                      env.tmp / "vault-template", DEPLOY / "runners.toml", DEPLOY / "feeds.toml",
+                      datasources_file=DEPLOY / "datasources.toml")
     assert {n: r.fallback for n, r in cfg.runners.items()} == {
-        "small": "fallback_small", "strong": "fallback_strong", "fallback_small": None, "fallback_strong": None}
+        "small": "fallback_small", "strong": "fallback_strong", "fallback_small": None, "fallback_strong": None,
+        "analysis": "fallback_analysis", "fallback_analysis": None}
+    assert "mcp__wsdata__*" in " ".join(cfg.runners["analysis"].command)
+    assert cfg.datasources["oracle-clickhouse"] | {} == {
+        "kind": "clickhouse", "url": "http://127.0.0.1:8123", "database": "db_stock", "user": "web_ro",
+        "password_file": "/etc/worksheet/ch-password", "force_readonly": False, "max_rows": 200, "timeout_seconds": 60}
     for r in cfg.runners.values():
         assert r.command[:3] == ["/opt/worksheet/deploy/oracle/run-as-agent.sh", "{view}", "pi"]
     assert "deepseek/deepseek-chat" in cfg.runners["fallback_strong"].command

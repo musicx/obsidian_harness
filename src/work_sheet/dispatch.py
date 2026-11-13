@@ -38,6 +38,8 @@ Each task names the `skill` to run; the role that runs it follows from the skill
 captured); `grant` lists extra files the role may write (only paths its role allows to be granted);
 `proposal` is the proposal page that justifies granting a file that already exists; `force: true` processes
 material again even if it was already ingested."""
+RESOURCES_NOTE = """
+`resources` lists the resources (see # Engines) this task needs, e.g. the data source to query."""
 ENGINE_NOTE = """
 `engine` names the engine (see # Engines) that runs the task: needed when the material or data lives on one
 machine. Leave it null to use the coordinator, or the first engine that can run the skill."""
@@ -57,11 +59,14 @@ def build_prompt(cfg: Config, path: str, handled: str, new: str, existing: list[
     skills = "\n".join(f"- {s.name}（{s.role}）：{s.description}" + runs_on(cfg, s) for s in cfg.dispatchable())
     finished_section = f"\n# Finished task\n\n{finished}\n" if finished else ""
     engines, output_format = "", OUTPUT_FORMAT
-    if cfg.registry:
+    if cfg.registry or cfg.datasources:
         engines = "# Engines\n\n" + "\n".join(
-            f"- {e.id}（{e.role}）：{e.description}；资源：{'、'.join(e.resources) or '无'}"
+            f"- {e.id}（{e.role}）：{e.description}；资源：" + ("、".join(
+                f"{name}（{about}）" if about else name for name, about in e.resources.items()) or "无")
             for e in cfg.engines.values()) + "\n\n"
-        output_format = OUTPUT_FORMAT.replace('"force": false}', '"force": false, "engine": null}') + ENGINE_NOTE
+        fields = ', "resources": []' + (', "engine": null' if cfg.registry else "")
+        output_format = (OUTPUT_FORMAT.replace('"force": false}', '"force": false' + fields + "}") + RESOURCES_NOTE
+                         + (ENGINE_NOTE if cfg.registry else ""))
     return f"""# Thread
 
 Path: {path}
@@ -182,7 +187,14 @@ def parse_decision(stdout: str, cfg: Config, existing: list[dict], relay_parent:
                 raise InvalidDecision(f"修改已有的 {path} 需要一份状态为 proposed 的建议页")
         if task.get("proposal") is not None and not nonempty_str(task["proposal"]):
             raise InvalidDecision(f"任务 {i} 的 proposal 必须是路径")
-        eligible = cfg.eligible(skill)
+        resources = task.get("resources") or []
+        if not isinstance(resources, list) or not all(isinstance(r, str) for r in resources):
+            raise InvalidDecision(f"任务 {i} 的 resources 必须是资源名称列表")
+        if unknown := [r for r in resources if r not in cfg.resources()]:
+            raise InvalidDecision(f"没有引擎提供资源 {unknown[0]}，可选：{'、'.join(cfg.resources()) or '（无）'}")
+        eligible = cfg.eligible(skill, resources)
+        if not eligible:
+            raise InvalidDecision(f"没有一个引擎能同时满足 skill {skill.name} 和资源 {'、'.join(resources)}")
         if task.get("engine") is None:
             task["engine"] = cfg.coordinator if cfg.coordinator in eligible else eligible[0]
         elif task["engine"] not in eligible:
@@ -252,7 +264,7 @@ def register(cfg: Config, stem: str, task: dict) -> tuple[dict, str]:
     extra = {"capture_mode": mode}
     if failed and not blocked:
         extra["capture_failed"] = failed
-    extra |= {k: task[k] for k in ("force", "grant", "proposal") if task.get(k)}
+    extra |= {k: task[k] for k in ("force", "grant", "proposal", "resources") if task.get(k)}
     if cfg.registry:
         extra["engine"] = engine
     meta = create_task(root, title=task["title"].strip(), status=status, role=task["role"], skill=task["skill"],

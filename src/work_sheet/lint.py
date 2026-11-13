@@ -1,13 +1,15 @@
 """Mechanical checks on Markdown files a task created or modified."""
 
+import re
 from collections.abc import Callable
+from datetime import date
 from pathlib import PurePosixPath
 
 import yaml
 
 from work_sheet.context import WIKILINK, name_key
 from work_sheet.generated import parse_topics
-from work_sheet.vault import as_list, link_target, parse_frontmatter, raw_dir, split_frontmatter
+from work_sheet.vault import as_list, link_target, now, parse_frontmatter, raw_dir, split_frontmatter
 
 EXEMPT = {"index.md", "_index.md", "log.md", "topics.md"}
 PAGE_TYPES = {"source", "concept", "entity"}
@@ -18,6 +20,8 @@ DESCRIBED_PAGES = (*NAMED_PAGES, "practice/*.md")
 MAX_DESCRIPTION = 200
 BAD_NAME_CHARS = set('"\\:*?<>|')
 MIN_KEPT = 0.7
+ANALYSIS_PAGES = ("analysis/**/*.md", "projects/*/analysis/**/*.md")
+SQL_BLOCK = re.compile(r"^```sql[ \t]*\n(.*?)^```", re.S | re.M | re.I)
 
 
 def frontmatter_of(text: str) -> dict | None:
@@ -38,8 +42,19 @@ def bad_file_name(path: str) -> bool:
     return bool(set(name) & BAD_NAME_CHARS) or name != name.strip(" ")
 
 
+def normalize_sql(sql: str) -> str:
+    return " ".join(sql.split()).removesuffix(";").rstrip()
+
+
+def as_date(value) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
 def lint(created: list[str], modified: list[str], tree: set[str], read: Callable[[str], str],
-         read_old: Callable[[str], str], allow_shrink: bool = False) -> list[str]:
+         read_old: Callable[[str], str], allow_shrink: bool = False, executed: set[str] = frozenset()) -> list[str]:
     """Check changed Markdown against the merged tree; `read` gives a tree file's new text, `read_old` the clone's."""
     stems = {PurePosixPath(p).stem for p in tree}
     names = {PurePosixPath(p).name for p in tree}
@@ -75,6 +90,19 @@ def lint(created: list[str], modified: list[str], tree: set[str], read: Callable
         if PurePosixPath(path).full_match("proposals/*.md"):
             if meta.get("type") != "proposal" or not meta.get("target") or meta.get("status") not in PROPOSAL_STATUSES:
                 problems.append(f"{path} 的 frontmatter 不合规（type/target/status）")
+        if is_page(path, ANALYSIS_PAGES):
+            as_of = as_date(meta.get("as_of"))
+            if meta.get("type") != "analysis" or not meta.get("question") or not meta.get("source") \
+                    or as_of is None or as_of > now().date():
+                problems.append(f"{path} 的 frontmatter 不合规（type/question/source/as_of）")
+            for sql in SQL_BLOCK.findall(text):
+                if normalize_sql(sql) not in executed:
+                    problems.append(f"{path} 里的查询没有执行记录：{normalize_sql(sql)[:60]}…")
+        if is_page(path, ("datasets/**/*.md",)):
+            description = meta.get("description")
+            if meta.get("type") != "dataset" or not meta.get("source") or not meta.get("table") \
+                    or not (isinstance(description, str) and description.strip()) or len(description) > MAX_DESCRIPTION:
+                problems.append(f"{path} 的 frontmatter 不合规（type/source/table/description）")
         if PurePosixPath(path).full_match("practice/*.md"):
             if meta.get("type") != "practice" or meta.get("owner") != "human":
                 problems.append(f"{path} 的 frontmatter 不合规（type/owner）")

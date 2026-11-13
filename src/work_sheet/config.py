@@ -65,7 +65,7 @@ class Engine:
     role: str  # coordinator | worker
     description: str
     runners: list[str]  # runner names this engine has
-    resources: list[str]
+    resources: dict[str, str]  # name -> description ("" when the registry gives a plain list)
 
 
 @dataclass
@@ -77,6 +77,7 @@ class Config:
     bot_email: str
     runners: dict[str, Runner]
     feeds: dict[str, Feed]
+    datasources: dict[str, dict]  # name -> the datasources.toml table, passed to the query tool as is
     roles: dict[str, Role]
     skills: dict[str, Skill]
     routing: str | None
@@ -98,10 +99,15 @@ class Config:
         """Whether a task note is this engine's to run (no engine: the coordinator's)."""
         return (meta.get("engine") or self.coordinator) == self.engine_id
 
-    def eligible(self, skill: Skill) -> list[str]:
-        """Engines with the skill's role's runner and every resource it requires, in registry order."""
-        runner = self.roles[skill.role].runner
-        return [e.id for e in self.engines.values() if runner in e.runners and set(skill.requires) <= set(e.resources)]
+    def eligible(self, skill: Skill, resources: list[str] = ()) -> list[str]:
+        """Engines with the skill's role's runner and every resource the skill and the task need, in registry
+        order."""
+        runner, needed = self.roles[skill.role].runner, set(skill.requires) | set(resources)
+        return [e.id for e in self.engines.values() if runner in e.runners and needed <= set(e.resources)]
+
+    def resources(self) -> list[str]:
+        """Every resource some engine offers."""
+        return list(dict.fromkeys(r for e in self.engines.values() for r in e.resources))
 
     def dispatchable(self) -> list[Skill]:
         """Skills the dispatcher may choose: they name a role, and some engine can run them."""
@@ -187,8 +193,11 @@ def load_toml(path: Path) -> dict:
 
 
 def parse_engines(data: dict, source) -> dict[str, Engine]:
+    def resources(value) -> dict[str, str]:
+        return {str(k): str(v) for k, v in value.items()} if isinstance(value, dict) else dict.fromkeys(value or [], "")
+
     engines = {name: Engine(name, e.get("role", ""), str(e.get("description") or ""), list(e.get("runners") or []),
-                            list(e.get("resources") or []))
+                            resources(e.get("resources")))
                for name, e in data.get("engines", {}).items()}
     if bad := [e.id for e in engines.values() if e.role not in ("coordinator", "worker")]:
         raise SystemExit(f"{source}: engines {bad} need role = \"coordinator\" or \"worker\"")
@@ -199,7 +208,8 @@ def parse_engines(data: dict, source) -> dict[str, Engine]:
 
 def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: Path, workspace: str | None,
                 template_dir: Path, runners_file: Path | None = None, feeds_file: Path | None = None,
-                engines_file: Path | None = None, engine_id: str | None = None) -> Config:
+                engines_file: Path | None = None, engine_id: str | None = None,
+                datasources_file: Path | None = None) -> Config:
     workspaces = load_toml(config_dir / "workspaces.toml")["workspaces"]
     if workspace is None:
         if len(workspaces) != 1:
@@ -218,6 +228,10 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
     feeds = {name: Feed(name, f["title"], Path(f["source"]), f["pattern"], f["cadence"], f.get("url"),
                         f.get("since") or None)
              for name, f in (load_toml(feeds_file)["feeds"] if feeds_file.exists() else {}).items()}
+    datasources_file = datasources_file or config_dir / "datasources.toml"
+    datasources = load_toml(datasources_file)["sources"] if datasources_file.exists() else {}
+    if bad := [n for n, d in datasources.items() if d.get("kind") != "clickhouse"]:
+        raise SystemExit(f"{datasources_file}: sources {bad} need kind = \"clickhouse\" (the only kind for now)")
     engines_file = engines_file or config_dir / "engines.toml"
     if engines_file.exists():
         engines = parse_engines(load_toml(engines_file), engines_file)
@@ -227,7 +241,8 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
         if engine_id not in engines:
             raise SystemExit(f"engine id {engine_id!r} is not in {engines_file}; known: {', '.join(engines)}")
     else:
-        engines, engine_id = {"main": Engine("main", "coordinator", "", list(runners), [])}, "main"
+        engines = {"main": Engine("main", "coordinator", "", list(runners), dict.fromkeys(datasources, ""))}
+        engine_id = "main"
     roles = {r.id: r for r in map(load_role, sorted(roles_dir.glob("*.md")))}
     skills = {s.name: s for s in (load_skill(p, roles) for p in sorted(skills_dir.glob("*/SKILL.md")))}
     for skill in skills.values():
@@ -242,6 +257,7 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
         bot_email=ws["bot_email"],
         runners=runners,
         feeds=feeds,
+        datasources=datasources,
         roles=roles,
         skills=skills,
         routing=routing_file.read_text() if routing_file.exists() else None,
