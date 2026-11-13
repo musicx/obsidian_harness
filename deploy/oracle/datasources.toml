@@ -1,0 +1,12 @@
+# Data sources on the Oracle host for the analyst role's read-only query tool (src/work_sheet/datatool.py).
+# Selected with WORKSHEET_DATASOURCES_FILE=deploy/oracle/datasources.toml; the name is the resource name in engines.toml.
+
+[sources.oracle-clickhouse]
+kind = "clickhouse"
+url = "${WORKSHEET_CH_URL}"
+database = "${WORKSHEET_CH_DATABASE}"
+user = "${WORKSHEET_CH_USER}"
+password_file = "${WORKSHEET_CH_PASSWORD_FILE}"   # read by the tool (as the agent user) at query time
+force_readonly = false                             # the account is already read-only and refuses readonly=1
+max_rows = 200
+timeout_seconds = 60

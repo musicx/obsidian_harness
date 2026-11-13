@@ -20,3 +20,6 @@ build/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Machine-specific data source definitions (see config/datasources.sample.toml)
+config/datasources.toml

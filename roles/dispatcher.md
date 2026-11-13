@@ -55,6 +55,7 @@ timeout_minutes: 5
 - `project`：任务属于某个项目时填项目名册里的项目名，否则为 `null`。
 - `parent`：任务是对本线程某个已有任务的延续时填那个任务的 id，否则为 `null`。
 - 以下字段只在路由规则要求时才写，平时不要出现：`capture_mode`（`"any"`）、`grant`（路径数组）、`proposal`（建议页路径）、`force`（`true`）。
+- `resources`：只有数据类的 skill 需要，写本次任务要用的数据源名字（数组），见路由规则。
 - `engine`：只有输入里有 `# Engines` 一节、并且用户明确说了要在哪台机器上做时才填那台机器的 id；否则不要写，系统会自动选择。
 - `ignore` 和 `ask_human` 时 `tasks` 为空数组。
 - 一次登记多个任务时，按它们应当执行的先后顺序排列。

@@ -9,7 +9,7 @@
 format = "pi-json"
 command = [
   "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
-  "--no-tools",
+  "--no-mcp", "--no-tools",
   "--model", "${WORKSHEET_SMALL_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
   "@{prompt_file}",
@@ -19,7 +19,20 @@ command = [
 format = "pi-json"
 command = [
   "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
-  "--tools", "read,grep,find,ls,edit,write",
+  "--no-mcp", "--tools", "read,grep,find,ls,edit,write",
+  "--model", "${WORKSHEET_STRONG_MODEL}",
+  "--append-system-prompt", "{system_prompt_file}",
+  "@{prompt_file}",
+]
+
+# strong plus the read-only query tool `wsdata`, which the engine mounts in the view's .pi/mcp.json for tasks
+# that name a data source. --no-extensions also turns off pi's built-in MCP support, so `-e builtin:mcp` brings
+# it back; --approve trusts the view's project config so .pi/mcp.json is read in print mode.
+[runners.analysis]
+format = "pi-json"
+command = [
+  "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
+  "-e", "builtin:mcp", "--approve", "--tools", "read,grep,find,ls,edit,write,mcp__wsdata__*",
   "--model", "${WORKSHEET_STRONG_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
   "@{prompt_file}",

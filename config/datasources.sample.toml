@@ -1,0 +1,13 @@
+# Data sources this machine offers to the analyst role's read-only query tool (src/work_sheet/datatool.py).
+# Copy to config/datasources.toml (gitignored) and adjust; or point WORKSHEET_DATASOURCES_FILE elsewhere.
+# The source name is also the resource name the engine registry (engines.toml) uses for routing.
+
+[sources.a-share-data]
+kind = "clickhouse"             # the only kind for now
+url = "http://127.0.0.1:8123"
+database = "db_stock"
+user = "default"
+password_file = ""              # optional path; the tool reads it at query time, the engine never does
+force_readonly = true           # send readonly=1 with every request
+max_rows = 200
+timeout_seconds = 60
