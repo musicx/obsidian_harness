@@ -215,3 +215,25 @@ def test_invalid_timezone_aborts(env: Env, monkeypatch, restore_tz):
     monkeypatch.setenv("WORKSHEET_TIMEZONE", "Mars/Olympus_Mons")
     with pytest.raises(SystemExit, match="WORKSHEET_TIMEZONE='Mars/Olympus_Mons' is not a valid IANA time zone"):
         env.tick()
+
+
+# --- one process per state dir ---------------------------------------------------------------------------
+
+def test_engine_lock(seeded: Env, capsys):
+    import fcntl
+
+    env = seeded
+    env.push({"inbox/a.md": "今天天气不错\n"})
+    env.respond({"action": "ignore", "reason": "无关"})
+    head = env.remote_head()
+    state = env.state / "vault"
+    state.mkdir(parents=True)
+    with open(state / "engine.lock", "w") as other:
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(SystemExit) as exit_info:
+            env.tick()
+        assert exit_info.value.code == 3
+        assert f"另一个引擎进程正在使用 {state}（engine.lock 被占用）；本次不运行。" in capsys.readouterr().err
+        assert env.remote_head() == head and not (state / "clone").exists()
+    env.tick()
+    assert subjects_since(env, head) == ["dispatch: a"]

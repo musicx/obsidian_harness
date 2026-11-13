@@ -1,6 +1,8 @@
 import argparse
+import fcntl
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -20,6 +22,19 @@ def setup_logging(log_file: Path) -> None:
         handler.setFormatter(fmt)
         log.addHandler(handler)
     log.setLevel(logging.INFO)
+
+
+def lock_state(state_dir: Path):
+    """Hold <state>/<workspace>/engine.lock for the life of the process: one engine process per state dir,
+    since two would share one clone and take each other's running tasks for interrupted ones."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    lock = open(state_dir / "engine.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"另一个引擎进程正在使用 {state_dir}（engine.lock 被占用）；本次不运行。", file=sys.stderr)
+        raise SystemExit(3)
+    return lock
 
 
 def load_dotenv(path: Path) -> None:
@@ -79,6 +94,8 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config(args.config_dir, args.roles_dir, args.skills_dir, args.state_dir.resolve(), args.workspace,
                       args.vault_template_dir.resolve(), args.runners_file, args.feeds_file, args.engines_file,
                       args.engine_id, args.datasources_file)
+    if args.command != "eval-routing":
+        lock = lock_state(cfg.state_dir)  # held until tick/run ends
     setup_logging(cfg.state_dir / "engine.log")
     if missing := [r for r in cfg.engines[cfg.engine_id].runners if r not in cfg.runners]:
         log.warning("engine %s lists runners missing from its runners file: %s", cfg.engine_id, ", ".join(missing))
@@ -88,10 +105,10 @@ def main(argv: list[str] | None = None) -> None:
                  "%s", ", ".join(skipped))
     if args.command == "eval-routing":
         raise SystemExit(run_eval(cfg, args.cases, args.runs))
-    if args.command == "tick":
-        tick(cfg)
-        return
     try:
+        if args.command == "tick":
+            tick(cfg)
+            return
         while True:
             try:
                 tick(cfg)
@@ -100,3 +117,5 @@ def main(argv: list[str] | None = None) -> None:
             time.sleep(args.interval)
     except KeyboardInterrupt:
         log.info("stopped")
+    finally:
+        lock.close()
