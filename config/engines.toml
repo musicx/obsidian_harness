@@ -1,0 +1,15 @@
+# Engines working on the same vault. Every engine process names itself with WORKSHEET_ENGINE_ID.
+# A task goes to an engine that has the skill's runner and every resource the skill requires;
+# the coordinator does all global work (dispatch, templates, indexes, logs).
+
+[engines.oracle]
+role = "coordinator"
+description = "常驻服务器；网站和简报在这里，能连这台机器上的数据库"
+runners = ["small", "strong"]
+resources = ["oracle-clickhouse", "site-briefings"]
+
+[engines.mac]
+role = "worker"
+description = "个人电脑，不常开；有 A 股数据和本机文件（/Users/ 下的路径），可以联网搜集"
+runners = ["small", "strong", "web"]
+resources = ["a-share-data", "local-files"]
