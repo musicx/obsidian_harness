@@ -6,7 +6,7 @@ ok (valid source + concept pages, plus a _scratch note), outside (a file outside
 generated (rewrites wiki/index.md), deadlink (a link that resolves nowhere), projlog_rewrite (rewrites
 projects/alpha/log.md), status_missing (projects/alpha/status.md without as_of), practice_new /
 practice_edit (practice pages, needing a grant), bad_frontmatter (proposal and practice pages missing fields),
-repairable (a dead link, fixed once _feedback.md exists), noop (only a report), conflict (the human clone at $WS_HUMAN rewrites the thread page and pushes mid-run).
+repairable (a dead link, fixed once _feedback.md exists), briefing (edits an imported briefing), noop (only a report), conflict (the human clone at $WS_HUMAN rewrites the thread page and pushes mid-run).
 """
 
 import os
@@ -83,6 +83,9 @@ elif mode == "repairable":
     fixed = (view / "_feedback.md").exists()
     write("wiki/sources/样例文章.md", source_page("要点。" if fixed else "见 [[不存在的页面]]。"))
     done("修正了链接。" if fixed else "完成。")
+elif mode == "briefing":
+    write("briefings/x-digest/2026/11/2026-11-10.md", "改写简报\n")
+    done()
 elif mode == "noop":
     done("没有改动。")
 elif mode == "deadlink":
