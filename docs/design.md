@@ -94,6 +94,7 @@ projects/
   _index.md            项目名册，引擎生成
   <项目>/status.md  log.md  decisions/  reports/
 outputs/               不属于某个项目的交付物：答案、综述；digests/ 是阶段简报
+briefings/<简报名>/YYYY/MM/   外部流水线产出的日报、周报，引擎导入，只读
 work/<任务 id>/        角色的过程文档（researcher 的搜集记录）
 tasks/                 任务笔记；board.base 是看板
 views/                 首页用到的 Bases 视图
@@ -175,6 +176,12 @@ assets/                图片
 - 采集失败不猜测内容：任务转 `blocked`，写明哪份材料、为什么、建议怎么提供。
 - researcher 找到的资料同样只交 URL，由引擎采集——存档的是原文，不是模型的转述。这类任务允许部分失败（`capture_mode: any`）。
 - **已收录过的材料不再跑一遍**：采集结果若已被某个来源页的 `raw` 指向，收录任务直接完成并指向那一页；用户明确要求重做时才强制运行。
+
+### 7.2.1 外部简报的导入
+
+别的流水线定期产出的简报（日报、周报）不走采集，而是由引擎的一个确定性步骤整批导入：`feeds.toml` 里登记每一路简报的来源目录、文件名模式和频率，引擎每轮把新出现或有更新的文件写成 `briefings/<简报名>/YYYY/MM/日期.md`，带 `type: briefing`、`stream`、`cadence`、`date`、`description`、`url` 等 frontmatter。来源以产出它的流水线为准，vault 里只读，任何角色都不能写这个目录。
+
+简报不自动收录进 `wiki/`：一年上千篇逐篇并入会把概念页冲散。它们作为按日期排列的存档供阅读和引用；想把其中某篇的内容留下来，在 inbox 里说一句，把那篇简报的路径当作材料走正常的收录流程。它和 `outputs/digests/`（本系统对自身变化的阶段简报）是两回事。
 
 ### 7.3 收录（`wiki-ingest`）
 
@@ -323,7 +330,7 @@ metadata:
 | `librarian` | `wiki/` 的唯一写入者 | 线程页、本次材料、`wiki/**`、`practice/**`、`proposals/**` | `wiki/**`、`proposals/**`；`practice/` 仅限被授权的那一个文件 | `strong` |
 | `tracker` | 项目区的唯一写入者；按项目隔离 | 线程页、本次材料、项目名册、`projects/{project}/**` | 该项目的 `status.md`、`log.md`、`decisions/**` | `strong` |
 | `researcher` | 唯一能联网、唯一接触未经采集的外部内容 | 线程页、本次材料、wiki 各目录 | `work/{task}/**` | `web` |
-| `writer` | 只读知识、不改知识 | 线程页、项目名册、`projects/{project}/**`、`wiki/**`、`practice/**`、`proposals/**`、`outputs/**` | `projects/{project}/reports/**`、`outputs/**` | `strong` |
+| `writer` | 只读知识、不改知识 | 线程页、项目名册、`projects/{project}/**`、`wiki/**`、`practice/**`、`proposals/**`、`outputs/**`、`briefings/**` | `projects/{project}/reports/**`、`outputs/**` | `strong` |
 
 每次运行，引擎在仓库之外新建临时目录（视图），只放入该角色可读且本任务用得到的文件，不含 `.git`。结束后对比差异：落在可写范围之外、或触及引擎生成的文件，整个任务失败，什么都不导入。
 
@@ -384,7 +391,9 @@ ready ──► running ──► done
 | `WORKSHEET_PI_BIN`、`WORKSHEET_GROK_BIN` | 两个 agent CLI 的可执行文件 |
 | `WORKSHEET_SMALL_MODEL`、`WORKSHEET_STRONG_MODEL`、`WORKSHEET_WEB_MODEL` | 三个逻辑 runner 各自的模型 |
 
-换环境改 `.env`；换成调用方式完全不同的 CLI，另备一个配置目录。角色、skill 和 vault 都不用动。凭证由各 CLI 自己管理。
+换环境改 `.env`；runner 的调用方式不同时，用 `WORKSHEET_RUNNERS_FILE` 指向另一份 runner 文件（简报来源同理，用 `WORKSHEET_FEEDS_FILE`）。角色、skill 和 vault 都不用动。凭证由各 CLI 自己管理。
+
+**备用模型**：runner 可以声明 `fallback`，指向另一个 runner。主 runner 的 CLI 运行失败或超时（模型服务断线、限流、欠费）时，引擎把视图恢复到运行前的状态，换备用 runner 再跑一次，并在任务记录里注明。调度者同理；主、备都失败才算基础设施故障，线程留待下一轮。
 
 runner 契约：在视图目录里启动；收到角色底线（系统提示）和带 skill 正文的任务提示；只通过读写视图里的文件工作；结束前写 `_report.md`；不执行 git。
 
@@ -395,7 +404,7 @@ runner 契约：在视图目录里启动；收到角色底线（系统提示）�
 | 检查 | 范围 |
 |---|---|
 | 写入范围：每个改动都在角色可写范围内（加上本任务被授予的文件） | 全部 |
-| 保护区：不得改 `raw/`、`tasks/`、`inbox/` 和引擎生成的目录、日志 | 全部 |
+| 保护区：不得改 `raw/`、`tasks/`、`inbox/`、`briefings/` 和引擎生成的目录、日志 | 全部 |
 | 链接：每个 `[[…]]` 都能解析到存在的文件 | 所有改动的 `.md` |
 | 文件名不含 `" \ : * ? < > \|`，首尾没有空格（保证能同步到其他平台） | 所有新建的文件 |
 | 必填 frontmatter：`type` 合法；概念和实体页有 `sources`；来源页的 `raw` 指向已存档的原文 | `wiki/` |
@@ -417,6 +426,20 @@ runner 契约：在视图目录里启动；收到角色底线（系统提示）�
 - obsidian-git：关闭自动提交和自动推送，开启定时自动 pull；人用 "Commit-and-sync" 手动发送。
 - vault 根目录与 git 根目录一致；附件目录设为 `inbox/attachments/`；`.obsidian/workspace*.json` 不入库。
 - 需要 Obsidian 1.14 以上（Bases 看板）。官方 Obsidian CLI 要求桌面应用在运行、批量调用慢，引擎不依赖它，一律直接读写文件。
+
+### 15.1 部署形态
+
+引擎同一时间只能有一个在跑（多引擎见第 18.1 节）。目前有两种部署：
+
+| | 本机（Mac） | 服务器（oracle） |
+|---|---|---|
+| 运行方式 | 手动 `worksheet tick` 或前台 `run` | systemd 服务常驻，`worksheet run` |
+| 模型 | pi 经本机代理调 DeepSeek；grok 联网 | pi 直连 Claude API（Haiku 调度、Sonnet 执行），DeepSeek 作备用；暂无联网角色 |
+| agent 的系统身份 | 与引擎相同的用户 | 独立的无特权用户：引擎用一个包装脚本把视图目录交给它、以它的身份启动 CLI、结束后收回。agent 读不到引擎用户名下的任何密钥和 git 凭证 |
+| 简报导入 | 无 | 直接读本机网站目录下的简报 JSON |
+| 材料 | 链接、附件、本机路径 | 链接、附件（本机路径指的是服务器上的路径） |
+
+服务器上的专用文件在 `deploy/oracle/`：runner 定义、简报来源、包装脚本、服务单元和 `.env` 样本。模型密钥由人以 agent 用户的身份登录 pi 时填入，保存在该用户自己的目录里，引擎和代码仓库都不经手。
 
 ## 16. 项目结构
 
@@ -458,8 +481,53 @@ work_sheet/
 | PPT / Word 导出 | 需要时增加一个能执行脚本的角色，挂载现成的文档类 skill |
 | 独立的验收角色、计划角色 | 出现无法靠报告接力完成的大型多步任务 |
 | MCP 采集 | 进入办公环境，需要取内部文档 |
-| 多工作区、多引擎、PR 流程 | 以 GitHub 为中心扩展到多个仓库时 |
-| 操作系统级沙箱 | 运行环境有要求时 |
+| 多引擎（第 18.1 节） | 下一个大版本 |
+| 多工作区、PR 流程 | 以 GitHub 为中心扩展到多个仓库时 |
+| 更严格的沙箱 | 运行环境有要求时（服务器上已用独立用户隔离） |
+
+### 18.1 多引擎（下一个大版本）
+
+目标：数据在哪台机器上，分析就在哪台机器上跑。A 股数据只在 Mac 上，那些分析就由 Mac 上的引擎启动 agent；oracle 上的数据库只有 oracle 能连，就在那边启动。任务去哪台机器由**显式指定**决定，不靠引擎之间抢。
+
+**引擎的身份与资源**
+
+- 每个引擎有一个 id（`WORKSHEET_ENGINE_ID`，如 `mac`、`oracle`），并在仓库里的 `config/engines.toml` 登记它提供的资源：
+
+```toml
+[engines.oracle]
+role = "coordinator"                       # 全局只有一个
+resources = ["oracle-clickhouse", "site-briefings", "always-on"]
+
+[engines.mac]
+role = "worker"
+resources = ["a-share-data", "local-files", "web"]
+```
+
+- 这份名册所有引擎共用，调度者能看到，所以它知道"A 股数据"在哪。
+
+**任务怎么定去向**
+
+任务笔记增加 `engine` 字段，由调度者在登记时填写，来源按优先级：
+
+1. 人在请求里明说（"在 oracle 上跑""用本机的数据"）。
+2. skill 声明所需的资源（`metadata.requires: a-share-data`），调度者查名册找到提供该资源的引擎；有多个引擎都提供时取人指定的或名册里靠前的。
+3. 材料的位置：本机文件路径归 `local-files` 所在的引擎。
+4. 都没有：交给协调引擎。
+
+所需资源没有任何引擎提供时，调度者提问，不硬派。任务块和看板上显示任务在哪个引擎。
+
+**分工**
+
+- **协调引擎**（常驻的那一个）独占所有全局性的工作：调度线程和接力、铺模板、导入简报、生成目录、状态校正。这些步骤保持单写入者，不需要加锁。
+- **所有引擎**（包括协调引擎）只执行 `engine` 等于自己的 `ready` 任务。
+- **认领**：引擎把任务改成 `running` 并写上 `claimed_by` 后推送；推送被拒（别人先动了仓库）就重新同步、重新判断。因为任务已显式指定引擎，正常情况下不会有两个引擎争同一个任务，这一步只是防止同一引擎被误启动了两份。
+- **采集就地进行**：材料是本机路径时，登记任务的协调引擎不采集，留给目标引擎在运行前采集（这正是现在"重跑时重新采集"的那条路径）。
+- **失联**：`running` 的任务只由认领它的引擎校正。别的引擎的任务超过"角色超时的两倍"仍未结束，协调引擎把它标为 `blocked` 并注明哪个引擎失联，由人决定重派还是等待。
+- 每个引擎用自己的 runner 配置和凭证，互不知晓。数据类 skill 需要的工具（查询数据库、跑脚本）只在提供该资源的引擎上配置。
+
+**现在为它留的位置**
+
+当前版本只允许一个引擎。为了到时不必迁移数据：任务笔记里的 `engine` 字段名从现在起保留不作他用；runner、简报来源、vault 模板已经是按环境可替换的；重跑时重新采集的逻辑已经存在。除此之外现在不做任何多引擎的实现。
 
 ## 19. 故事对照
 

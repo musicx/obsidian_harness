@@ -1,0 +1,43 @@
+filters:
+  and:
+    - file.inFolder("briefings")
+    - 'type == "briefing"'
+properties:
+  file.name:
+    displayName: 页面
+  note.stream_title:
+    displayName: 简报
+  note.date:
+    displayName: 日期
+  note.title:
+    displayName: 标题
+  note.description:
+    displayName: 摘要
+  note.cadence:
+    displayName: 频率
+views:
+  - type: table
+    name: 最新简报
+    sort:
+      - property: date
+        direction: DESC
+    limit: 12
+    order:
+      - date
+      - stream_title
+      - title
+      - description
+      - file.name
+  - type: table
+    name: 全部简报
+    groupBy:
+      property: note.stream_title
+      direction: ASC
+    sort:
+      - property: date
+        direction: DESC
+    order:
+      - date
+      - title
+      - description
+      - file.name

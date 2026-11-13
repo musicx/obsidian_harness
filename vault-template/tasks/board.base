@@ -12,7 +12,7 @@ views:
   - type: kanban
     name: Board
     groupBy:
-      property: status
+      property: note.status
       direction: ASC
     groupOrder:
       - ready

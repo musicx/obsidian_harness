@@ -3,7 +3,7 @@ id: writer
 description: 撰稿人。只读知识库和项目记录，把已有内容写成给人看的东西：答案、汇报、综述、简报。
 runner: strong
 web: false
-read: ["{thread}", "{context}", "projects/_index.md", "projects/{project}/**", "wiki/**", "practice/**", "proposals/**", "outputs/**"]
+read: ["{thread}", "{context}", "projects/_index.md", "projects/{project}/**", "wiki/**", "practice/**", "proposals/**", "outputs/**", "briefings/**"]
 write: ["projects/{project}/reports/**", "outputs/**"]
 timeout_minutes: 20
 ---
