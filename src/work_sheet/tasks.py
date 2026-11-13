@@ -16,7 +16,7 @@ from work_sheet.context import query_text, write_packs
 from work_sheet.generated import append_log, regenerate
 from work_sheet.gitops import commit, push, tracked_files
 from work_sheet.lint import lint
-from work_sheet.runner import run_cli
+from work_sheet.runner import run_runner
 from work_sheet.vault import (add_log, brief_of, is_generated, page_link, parse_frontmatter, read_task, thread_path,
                               update_block, write_task)
 
@@ -27,7 +27,7 @@ TASK_PROMPT = ("阅读当前目录下的 _brief.md 并完成任务。操作规�
 ENGINE_FILES = {"_brief.md", "_report.md", "_feedback.md"}
 REPAIR_PROMPT = "上一次的产出没有通过检查，问题列在 _feedback.md。只修正这些问题，不要改动其他内容；修正后更新 _report.md。"
 ENGINE_DIRS = ("_skill/", "_skills/", "_context/", "_scratch/")  # _scratch/: the agent's working notes
-PROTECTED = ("raw/", "tasks/", "inbox/")
+PROTECTED = ("raw/", "tasks/", "inbox/", "briefings/")
 MAX_SUMMARY = 600
 CONFLICT = "与远端的改动冲突，产出未导入"
 
@@ -137,7 +137,7 @@ class Outcome:
     created: list[str] = field(default_factory=list)  # the path lists are only filled when imported
     modified: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
-    repaired: bool = False  # a repair pass was requested
+    events: list[str] = field(default_factory=list)  # task-log lines: fallback used, repair requested
 
 
 def runner_failure(code: int | None) -> str | None:
@@ -174,6 +174,26 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill) -> Out
                         lambda p: (root / p).read_text(errors="replace"), skill.allow_shrink)
         return created, modified, deleted, "检查未通过：\n" + "\n".join(problems) if problems else None
 
+    events = []
+
+    def run(prompt: str, run_dir: Path) -> tuple[int | None, str]:
+        saved = Path(tempfile.mkdtemp(prefix="worksheet-saved-"))
+        shutil.copytree(view, saved, dirs_exist_ok=True)
+
+        def restore() -> None:
+            """Undo a failed run before its fallback starts."""
+            shutil.rmtree(view)
+            shutil.copytree(saved, view)
+
+        try:
+            code, stdout, note = run_runner(cfg.runners, role.runner, role.prompt, prompt, view, run_dir,
+                                            role.timeout_minutes * 60, restore)
+        finally:
+            shutil.rmtree(saved)
+        if note:
+            events.append(note)
+        return code, stdout
+
     try:
         for path in tracked:
             if matches(path, read_patterns):
@@ -188,29 +208,28 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill) -> Out
         prompt = f'{TASK_PROMPT}\n\n<skill name="{skill.name}" dir="_skill">\n{skill.body}\n</skill>\n'
         before = snapshot(view)
         run_dir = cfg.runs / meta["id"]
-        code, stdout = run_cli(cfg.runners[role.runner], role.prompt, prompt, view, run_dir, role.timeout_minutes * 60)
+        code, stdout = run(prompt, run_dir)
         if failure := runner_failure(code):
-            return Outcome("failed", failure)
+            return Outcome("failed", failure, events=events)
         created, modified, deleted, failure = check()
-        repaired = bool(failure)
         if failure:
+            events.append("检查未通过，已要求修正一次")
             (view / "_feedback.md").write_text(failure + "\n")
-            code, stdout = run_cli(cfg.runners[role.runner], role.prompt, REPAIR_PROMPT, view, run_dir / "repair",
-                                   role.timeout_minutes * 60)
+            code, stdout = run(REPAIR_PROMPT, run_dir / "repair")
             if failure := runner_failure(code):
-                return Outcome("failed", failure, repaired=True)
+                return Outcome("failed", failure, events=events)
             created, modified, deleted, failure = check()
             if failure:
-                return Outcome("failed", failure, repaired=True)
+                return Outcome("failed", failure, events=events)
         status, summary, extras = parse_report(view, stdout)
         if status != "done":
-            return Outcome(status, summary, extras, repaired=repaired)
+            return Outcome(status, summary, extras, events=events)
         for path in created + modified:
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(view / path, root / path)
         for path in deleted:
             (root / path).unlink()
-        return Outcome(status, summary, extras, created, modified, deleted, repaired)
+        return Outcome(status, summary, extras, created, modified, deleted, events)
     finally:
         shutil.rmtree(view)
 
@@ -238,8 +257,9 @@ def run_task(cfg: Config, task_id: str) -> None:
     meta, body = read_task(root, task_id)
     role = cfg.roles[meta["role"]]
     skill = cfg.skills.get(meta.get("skill"))
-    if skill is None:
-        reason = f"找不到 skill {meta.get('skill')!r}，无法运行"
+    if skill is None or role.runner not in cfg.runners:
+        reason = (f"找不到 skill {meta.get('skill')!r}，无法运行" if skill is None
+                  else f"这台机器没有配置 runner {role.runner}，无法运行")
         finish(cfg, meta, body, "failed", reason, f"失败：{reason}")
         return
     if meta.get("capture") and not meta.get("context"):
@@ -268,8 +288,8 @@ def run_task(cfg: Config, task_id: str) -> None:
     status, summary, extras = outcome.status, outcome.summary, outcome.extras
     created, modified, deleted = outcome.created, outcome.modified, outcome.deleted
     log.info("task %s: %s", task_id, status)
-    if outcome.repaired:
-        body = add_log(body, "检查未通过，已要求修正一次")
+    for event in outcome.events:
+        body = add_log(body, event)
     if status == "done":
         meta["outputs"] = created + modified
         uncaptured = [f.rsplit("：", 1)[0] for f in meta.get("capture_failed") or []]

@@ -41,6 +41,18 @@ class Skill:
 class Runner:
     command: list[str]
     env: dict[str, str]
+    fallback: str | None  # runner to use once when this one fails
+
+
+@dataclass
+class Feed:
+    name: str  # directory name under briefings/
+    title: str
+    source: Path
+    pattern: str
+    cadence: str
+    url: str | None  # `{date}` is substituted
+    since: str | None  # YYYY-MM-DD
 
 
 @dataclass
@@ -51,6 +63,7 @@ class Config:
     bot_name: str
     bot_email: str
     runners: dict[str, Runner]
+    feeds: dict[str, Feed]
     roles: dict[str, Role]
     skills: dict[str, Skill]
     routing: str | None
@@ -58,7 +71,9 @@ class Config:
     template_dir: Path
 
     def dispatchable(self) -> list[Skill]:
-        return [s for s in self.skills.values() if s.role and s.role != "dispatcher"]
+        """Skills the dispatcher may choose: they name a role, and that role's runner exists on this host."""
+        return [s for s in self.skills.values()
+                if s.role and s.role != "dispatcher" and self.roles[s.role].runner in self.runners]
 
     @property
     def clone(self) -> Path:
@@ -135,14 +150,23 @@ def load_toml(path: Path) -> dict:
 
 
 def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: Path, workspace: str | None,
-                template_dir: Path) -> Config:
+                template_dir: Path, runners_file: Path | None = None, feeds_file: Path | None = None) -> Config:
     workspaces = load_toml(config_dir / "workspaces.toml")["workspaces"]
     if workspace is None:
         if len(workspaces) != 1:
             raise SystemExit(f"--workspace is required; configured: {', '.join(workspaces)}")
         workspace = next(iter(workspaces))
     ws = workspaces[workspace]
-    runners = load_toml(config_dir / "runners.toml")["runners"]
+    runners_file = runners_file or config_dir / "runners.toml"
+    runners = {name: Runner(r["command"], r.get("env", {}), r.get("fallback"))
+               for name, r in load_toml(runners_file)["runners"].items()}
+    for name, runner in runners.items():
+        if runner.fallback and runner.fallback not in runners:
+            raise SystemExit(f"{runners_file}: fallback {runner.fallback!r} of runner {name!r} is not defined")
+    feeds_file = feeds_file or config_dir / "feeds.toml"
+    feeds = {name: Feed(name, f["title"], Path(f["source"]), f["pattern"], f["cadence"], f.get("url"),
+                        f.get("since") or None)
+             for name, f in (load_toml(feeds_file)["feeds"] if feeds_file.exists() else {}).items()}
     roles = {r.id: r for r in map(load_role, sorted(roles_dir.glob("*.md")))}
     skills = {s.name: s for s in (load_skill(p, roles) for p in sorted(skills_dir.glob("*/SKILL.md")))}
     for skill in skills.values():
@@ -155,7 +179,8 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
         branch=ws.get("branch", "main"),
         bot_name=ws["bot_name"],
         bot_email=ws["bot_email"],
-        runners={name: Runner(r["command"], r.get("env", {})) for name, r in runners.items()},
+        runners=runners,
+        feeds=feeds,
         roles=roles,
         skills=skills,
         routing=routing_file.read_text() if routing_file.exists() else None,

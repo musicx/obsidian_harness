@@ -3,6 +3,7 @@ import shutil
 
 from work_sheet.config import Config
 from work_sheet.dispatch import dispatch_relay, dispatch_thread
+from work_sheet.feeds import import_feeds
 from work_sheet.generated import regenerate
 from work_sheet.gitops import commit, dirty, push, sync
 from work_sheet.tasks import run_task
@@ -33,6 +34,13 @@ def scaffold(cfg: Config) -> None:
     if dirty(cfg):
         log.info("scaffolded vault files")
         commit(cfg, "scaffold: vault files", "engine")
+        push(cfg)
+
+
+def feeds(cfg: Config) -> None:
+    if count := import_feeds(cfg):
+        log.info("imported %d briefings", count)
+        commit(cfg, f"feed: {count} 篇简报", "engine")
         push(cfg)
 
 
@@ -71,6 +79,7 @@ def tick(cfg: Config) -> None:
         log.info("origin/%s has no commits yet; nothing to do", cfg.branch)
         return
     scaffold(cfg)
+    feeds(cfg)
     reconcile(cfg)
     for path in pending_threads(cfg):
         dispatch_thread(cfg, path)

@@ -44,6 +44,10 @@ def main(argv: list[str] | None = None) -> None:
     common.add_argument("--skills-dir", type=Path, default=Path(env("WORKSHEET_SKILLS_DIR", "skills")))
     common.add_argument("--vault-template-dir", type=Path,
                         default=Path(env("WORKSHEET_VAULT_TEMPLATE_DIR", "vault-template")))
+    common.add_argument("--runners-file", type=Path, default=env("WORKSHEET_RUNNERS_FILE"),
+                        help="default: <config-dir>/runners.toml")
+    common.add_argument("--feeds-file", type=Path, default=env("WORKSHEET_FEEDS_FILE"),
+                        help="default: <config-dir>/feeds.toml (optional)")
     common.add_argument("--state-dir", type=Path, default=Path(env("WORKSHEET_STATE_DIR", ".state")))
     common.add_argument("--workspace", default=env("WORKSHEET_WORKSPACE"),
                         help="workspace name (default: the only one configured)")
@@ -58,8 +62,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config_dir, args.roles_dir, args.skills_dir, args.state_dir.resolve(), args.workspace,
-                      args.vault_template_dir.resolve())
+                      args.vault_template_dir.resolve(), args.runners_file, args.feeds_file)
     setup_logging(cfg.state_dir / "engine.log")
+    dispatchable = {s.name for s in cfg.dispatchable()}
+    if skipped := sorted(n for n, s in cfg.skills.items() if s.role and s.role != "dispatcher" and n not in dispatchable):
+        log.info("skills not offered to the dispatcher (their role's runner is not configured): %s", ", ".join(skipped))
     if args.command == "eval-routing":
         raise SystemExit(run_eval(cfg, args.cases, args.runs))
     if args.command == "tick":

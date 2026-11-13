@@ -9,7 +9,7 @@ from work_sheet.capture import capture_all
 from work_sheet.config import Config
 from work_sheet.gitops import commit, push
 from work_sheet.lint import frontmatter_of
-from work_sheet.runner import run_cli
+from work_sheet.runner import run_runner
 from work_sheet.tasks import matches
 from work_sheet.vault import (append_block, block_summary, create_task, list_tasks, quote, raw_dir, read_task,
                               split_thread, task_block, thread_path, write_task)
@@ -186,15 +186,16 @@ def new_run_dir(cfg: Config) -> Path:
 
 def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict],
                    relay_parent: str | None = None) -> dict | None:
-    """The validated decision; ask_human when the output is invalid twice; None when the runner itself fails."""
+    """The validated decision; ask_human when the output is invalid twice; None when the runner (and its
+    fallback) failed."""
     role = cfg.roles["dispatcher"]
     error = None
     for _ in range(2):
         if error:
             prompt += f"\n# Your previous output was invalid\n\n{error}\n"
         with tempfile.TemporaryDirectory(prefix="worksheet-") as cwd:
-            code, stdout = run_cli(cfg.runners[role.runner], role.prompt, prompt, Path(cwd),
-                                   new_run_dir(cfg), role.timeout_minutes * 60)
+            code, stdout, _ = run_runner(cfg.runners, role.runner, role.prompt, prompt, Path(cwd),
+                                         new_run_dir(cfg), role.timeout_minutes * 60)
         if code != 0:
             # An outage, not a routing problem: create nothing and let the next tick try again.
             log.warning("dispatcher runner failed (%s); will retry next tick",
