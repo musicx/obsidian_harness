@@ -81,7 +81,8 @@ def test_skills_without_a_runner_are_not_offered(env: Env, caplog):
         decide(cfg, {"skill": "research"}, [])
     with caplog.at_level(logging.INFO, logger="work_sheet"):
         cli.main(["tick", *env.dirs(), "--runners-file", str(runners)])
-    assert "skills not offered to the dispatcher (their role's runner is not configured): research" in caplog.text
+    assert ("skills not offered to the dispatcher (no engine has their role's runner and required resources): "
+            "local-ingest, research, warehouse-query") in caplog.text
 
 
 # --- briefing feeds --------------------------------------------------------------------------------------

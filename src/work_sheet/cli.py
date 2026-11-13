@@ -57,6 +57,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="default: <config-dir>/runners.toml")
     common.add_argument("--feeds-file", type=Path, default=env("WORKSHEET_FEEDS_FILE"),
                         help="default: <config-dir>/feeds.toml (optional)")
+    common.add_argument("--engines-file", type=Path, default=env("WORKSHEET_ENGINES_FILE"),
+                        help="engine registry; default: <config-dir>/engines.toml (optional)")
+    common.add_argument("--engine-id", default=env("WORKSHEET_ENGINE_ID"),
+                        help="this engine's id in the registry (required when there is one)")
     common.add_argument("--state-dir", type=Path, default=Path(env("WORKSHEET_STATE_DIR", ".state")))
     common.add_argument("--workspace", default=env("WORKSHEET_WORKSPACE"),
                         help="workspace name (default: the only one configured)")
@@ -71,11 +75,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config_dir, args.roles_dir, args.skills_dir, args.state_dir.resolve(), args.workspace,
-                      args.vault_template_dir.resolve(), args.runners_file, args.feeds_file)
+                      args.vault_template_dir.resolve(), args.runners_file, args.feeds_file, args.engines_file,
+                      args.engine_id)
     setup_logging(cfg.state_dir / "engine.log")
+    if missing := [r for r in cfg.engines[cfg.engine_id].runners if r not in cfg.runners]:
+        log.warning("engine %s lists runners missing from its runners file: %s", cfg.engine_id, ", ".join(missing))
     dispatchable = {s.name for s in cfg.dispatchable()}
     if skipped := sorted(n for n, s in cfg.skills.items() if s.role and s.role != "dispatcher" and n not in dispatchable):
-        log.info("skills not offered to the dispatcher (their role's runner is not configured): %s", ", ".join(skipped))
+        log.info("skills not offered to the dispatcher (no engine has their role's runner and required resources): "
+                 "%s", ", ".join(skipped))
     if args.command == "eval-routing":
         raise SystemExit(run_eval(cfg, args.cases, args.runs))
     if args.command == "tick":

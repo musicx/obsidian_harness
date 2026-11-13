@@ -1,10 +1,12 @@
 """`worksheet eval-routing`: replay recorded routing cases against the configured dispatcher."""
 
+import dataclasses
 import json
 import tempfile
+import tomllib
 from pathlib import Path
 
-from work_sheet.config import Config
+from work_sheet.config import Config, parse_engines
 from work_sheet.dispatch import InvalidDecision, build_prompt, parse_decision
 from work_sheet.runner import run_runner
 from work_sheet.usage import Ledger
@@ -12,6 +14,11 @@ from work_sheet.usage import Ledger
 
 def run_case(cfg: Config, case: dict, n: int) -> tuple[bool, str]:
     """One dispatcher run for a case: (passed, what it returned)."""
+    ledger = Ledger(cfg.usage_log, cfg.engine_id, "eval")
+    if "engines" in case:  # route against the case's engine registry, as its coordinator
+        engines = parse_engines(tomllib.loads(case["engines"]), f"case {case['id']}")
+        cfg = dataclasses.replace(cfg, engines=engines, registry=True, engine_id="")
+        cfg.engine_id = cfg.coordinator
     role = cfg.roles["dispatcher"]
     existing = case.get("tasks") or []
     prompt = build_prompt(cfg, f"inbox/{case['id']}.md", case.get("handled", ""), case["text"], existing,
@@ -19,7 +26,7 @@ def run_case(cfg: Config, case: dict, n: int) -> tuple[bool, str]:
     with tempfile.TemporaryDirectory(prefix="worksheet-") as cwd:
         runs, _ = run_runner(cfg.runners, role.runner, role.prompt, prompt, Path(cwd),
                              cfg.runs / "eval" / f"{case['id']}-{n}", role.timeout_minutes * 60,
-                             Ledger(cfg.usage_log, "eval"))
+                             ledger)
     code, stdout = runs[-1].code, runs[-1].text
     if code != 0:
         return False, "运行超时" if code is None else f"运行失败（退出码 {code}）"
@@ -29,11 +36,14 @@ def run_case(cfg: Config, case: dict, n: int) -> tuple[bool, str]:
         return False, f"无效输出：{e}"
     expect = case["expect"]
     tasks = decision.get("tasks") or [] if decision["action"] == "register" else []
-    got = decision["action"] + "".join(f" {t['skill']}(project={t.get('project')})" for t in tasks)
+    got = decision["action"] + "".join(
+        f" {t['skill']}(project={t.get('project')}" + (f", engine={t['engine']})" if "engines" in case else ")")
+        for t in tasks)
     passed = decision["action"] == expect["action"]
     if passed and expect["action"] == "register":
         passed = [t["skill"] for t in tasks] == expect.get("skills", []) and (
-            "project" not in expect or all(t.get("project") == expect["project"] for t in tasks))
+            "project" not in expect or all(t.get("project") == expect["project"] for t in tasks)) and (
+            "engines" not in expect or [t["engine"] for t in tasks] == expect["engines"])
     return passed, got
 
 

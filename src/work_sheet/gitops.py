@@ -40,12 +40,18 @@ def commit(cfg: Config, subject: str, role: str, task_ids: list[str] = ()) -> No
     git(cfg, "commit", "-m", subject + "\n\n" + "\n".join(trailers))
 
 
+PUSH_ATTEMPTS = 3
+
+
 def push(cfg: Config) -> bool:
-    """Rebase onto the remote and push; on a rebase conflict, drop local commits and return False."""
-    if git(cfg, "pull", "--rebase", "origin", cfg.branch, check=False).returncode:
-        git(cfg, "rebase", "--abort", check=False)
-        git(cfg, "reset", "--hard", f"origin/{cfg.branch}")
-        log.warning("rebase onto origin/%s conflicted; local commits dropped", cfg.branch)
-        return False
-    git(cfg, "push", "origin", f"HEAD:{cfg.branch}")
-    return True
+    """Rebase onto the remote and push; on a rebase conflict, drop local commits and return False.
+    A push rejected because another engine pushed in between is rebased and retried."""
+    for _ in range(PUSH_ATTEMPTS):
+        if git(cfg, "pull", "--rebase", "origin", cfg.branch, check=False).returncode:
+            git(cfg, "rebase", "--abort", check=False)
+            break
+        if not git(cfg, "push", "origin", f"HEAD:{cfg.branch}", check=False).returncode:
+            return True
+    git(cfg, "reset", "--hard", f"origin/{cfg.branch}")
+    log.warning("could not rebase onto or push to origin/%s; local commits dropped", cfg.branch)
+    return False

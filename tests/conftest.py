@@ -68,6 +68,8 @@ SKILLS = {
     "digest": ("跨项目摘要", "role: librarian\n  read: \"projects/*/status.md\"", "DIGEST PROCEDURE"),
     "update-project": ("更新项目记录", "role: tracker\n  needs_project: \"true\"", "UPDATE PROCEDURE"),
     "research": ("联网搜集资料", "role: researcher", "RESEARCH PROCEDURE"),
+    "local-ingest": ("收录本机文件", "role: librarian\n  requires: local-files\n  dedupe: source", "LOCAL INGEST"),
+    "warehouse-query": ("查询数据仓库", "role: librarian\n  requires: nobody-has", "WAREHOUSE QUERY"),
     "wiki-style": ("知识页写法（共用）", "{}", "WIKI STYLE RULES"),
 }
 

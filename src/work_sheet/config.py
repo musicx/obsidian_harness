@@ -31,6 +31,7 @@ class Skill:
     context: list[str]
     uses: list[str]
     read: list[str]  # extra read patterns for tasks using this skill
+    requires: list[str]  # resources an engine must have to run it
     needs_project: bool
     dedupe: str | None
     allow_shrink: bool
@@ -59,6 +60,15 @@ class Feed:
 
 
 @dataclass
+class Engine:
+    id: str
+    role: str  # coordinator | worker
+    description: str
+    runners: list[str]  # runner names this engine has
+    resources: list[str]
+
+
+@dataclass
 class Config:
     workspace: str
     remote: str
@@ -72,11 +82,30 @@ class Config:
     routing: str | None
     state_dir: Path  # <state>/<workspace>
     template_dir: Path
+    engines: dict[str, Engine]  # in registry order; a single implicit `main` engine without a registry
+    engine_id: str  # this process
+    registry: bool  # whether an engines file was found
+
+    @property
+    def coordinator(self) -> str:
+        return next(e.id for e in self.engines.values() if e.role == "coordinator")
+
+    @property
+    def is_coordinator(self) -> bool:
+        return self.engine_id == self.coordinator
+
+    def owns(self, meta: dict) -> bool:
+        """Whether a task note is this engine's to run (no engine: the coordinator's)."""
+        return (meta.get("engine") or self.coordinator) == self.engine_id
+
+    def eligible(self, skill: Skill) -> list[str]:
+        """Engines with the skill's role's runner and every resource it requires, in registry order."""
+        runner = self.roles[skill.role].runner
+        return [e.id for e in self.engines.values() if runner in e.runners and set(skill.requires) <= set(e.resources)]
 
     def dispatchable(self) -> list[Skill]:
-        """Skills the dispatcher may choose: they name a role, and that role's runner exists on this host."""
-        return [s for s in self.skills.values()
-                if s.role and s.role != "dispatcher" and self.roles[s.role].runner in self.runners]
+        """Skills the dispatcher may choose: they name a role, and some engine can run them."""
+        return [s for s in self.skills.values() if s.role and s.role != "dispatcher" and self.eligible(s)]
 
     @property
     def clone(self) -> Path:
@@ -117,6 +146,7 @@ def load_skill(path: Path, roles: dict[str, Role]) -> Skill:
         context=md.get("context", "").split(),
         uses=md.get("uses", "").split(),
         read=md.get("read", "").split(),
+        requires=md.get("requires", "").split(),
         needs_project=md.get("needs_project", "").lower() == "true",
         dedupe=md.get("dedupe") or None,
         allow_shrink=md.get("allow_shrink", "").lower() == "true",
@@ -156,8 +186,20 @@ def load_toml(path: Path) -> dict:
     return expand_env(tomllib.loads(path.read_text()), path)
 
 
+def parse_engines(data: dict, source) -> dict[str, Engine]:
+    engines = {name: Engine(name, e.get("role", ""), str(e.get("description") or ""), list(e.get("runners") or []),
+                            list(e.get("resources") or []))
+               for name, e in data.get("engines", {}).items()}
+    if bad := [e.id for e in engines.values() if e.role not in ("coordinator", "worker")]:
+        raise SystemExit(f"{source}: engines {bad} need role = \"coordinator\" or \"worker\"")
+    if (n := sum(e.role == "coordinator" for e in engines.values())) != 1:
+        raise SystemExit(f"{source}: exactly one engine must have role = \"coordinator\" (found {n})")
+    return engines
+
+
 def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: Path, workspace: str | None,
-                template_dir: Path, runners_file: Path | None = None, feeds_file: Path | None = None) -> Config:
+                template_dir: Path, runners_file: Path | None = None, feeds_file: Path | None = None,
+                engines_file: Path | None = None, engine_id: str | None = None) -> Config:
     workspaces = load_toml(config_dir / "workspaces.toml")["workspaces"]
     if workspace is None:
         if len(workspaces) != 1:
@@ -176,6 +218,16 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
     feeds = {name: Feed(name, f["title"], Path(f["source"]), f["pattern"], f["cadence"], f.get("url"),
                         f.get("since") or None)
              for name, f in (load_toml(feeds_file)["feeds"] if feeds_file.exists() else {}).items()}
+    engines_file = engines_file or config_dir / "engines.toml"
+    if engines_file.exists():
+        engines = parse_engines(load_toml(engines_file), engines_file)
+        if not engine_id:
+            raise SystemExit(f"WORKSHEET_ENGINE_ID (--engine-id) is required with the engine registry {engines_file}; "
+                             f"known: {', '.join(engines)}")
+        if engine_id not in engines:
+            raise SystemExit(f"engine id {engine_id!r} is not in {engines_file}; known: {', '.join(engines)}")
+    else:
+        engines, engine_id = {"main": Engine("main", "coordinator", "", list(runners), [])}, "main"
     roles = {r.id: r for r in map(load_role, sorted(roles_dir.glob("*.md")))}
     skills = {s.name: s for s in (load_skill(p, roles) for p in sorted(skills_dir.glob("*/SKILL.md")))}
     for skill in skills.values():
@@ -195,4 +247,7 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
         routing=routing_file.read_text() if routing_file.exists() else None,
         state_dir=state_dir / workspace,
         template_dir=template_dir,
+        engines=engines,
+        engine_id=engine_id,
+        registry=engines_file.exists(),
     )

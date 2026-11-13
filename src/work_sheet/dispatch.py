@@ -6,13 +6,13 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 from work_sheet.capture import capture_all
-from work_sheet.config import Config
+from work_sheet.config import Config, Skill
 from work_sheet.gitops import commit, push
 from work_sheet.lint import frontmatter_of
 from work_sheet.runner import run_runner
 from work_sheet.usage import Ledger, summary
-from work_sheet.tasks import matches
-from work_sheet.vault import (append_block, block_summary, create_task, list_tasks, quote, raw_dir, read_task,
+from work_sheet.tasks import already_ingested, matches
+from work_sheet.vault import (append_block, block_summary, create_task, list_tasks, quote, read_task,
                               split_thread, task_block, thread_path, write_task)
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,9 @@ Each task names the `skill` to run; the role that runs it follows from the skill
 captured); `grant` lists extra files the role may write (only paths its role allows to be granted);
 `proposal` is the proposal page that justifies granting a file that already exists; `force: true` processes
 material again even if it was already ingested."""
+ENGINE_NOTE = """
+`engine` names the engine (see # Engines) that runs the task: needed when the material or data lives on one
+machine. Leave it null to use the coordinator, or the first engine that can run the skill."""
 
 
 class InvalidDecision(Exception):
@@ -51,8 +54,14 @@ def build_prompt(cfg: Config, path: str, handled: str, new: str, existing: list[
         + (f" · project: {t['project']}" if t.get("project") else "")
         + "".join(f"\n  - {p}" for p in t.get("outputs") or [])
         for t in existing)
-    skills = "\n".join(f"- {s.name}（{s.role}）：{s.description}" for s in cfg.dispatchable())
+    skills = "\n".join(f"- {s.name}（{s.role}）：{s.description}" + runs_on(cfg, s) for s in cfg.dispatchable())
     finished_section = f"\n# Finished task\n\n{finished}\n" if finished else ""
+    engines, output_format = "", OUTPUT_FORMAT
+    if cfg.registry:
+        engines = "# Engines\n\n" + "\n".join(
+            f"- {e.id}（{e.role}）：{e.description}；资源：{'、'.join(e.resources) or '无'}"
+            for e in cfg.engines.values()) + "\n\n"
+        output_format = OUTPUT_FORMAT.replace('"force": false}', '"force": false, "engine": null}') + ENGINE_NOTE
     return f"""# Thread
 
 Path: {path}
@@ -73,7 +82,7 @@ Path: {path}
 
 {projects.strip() if projects else "(none)"}
 
-# Skills
+{engines}# Skills
 
 {skills}
 
@@ -83,8 +92,13 @@ Path: {path}
 
 # Output format
 
-{OUTPUT_FORMAT}
+{output_format}
 """
+
+
+def runs_on(cfg: Config, skill: Skill) -> str:
+    eligible = cfg.eligible(skill)
+    return "" if len(eligible) == len(cfg.engines) else f"；可运行于：{'、'.join(eligible)}"
 
 
 def nonempty_str(value) -> bool:
@@ -168,6 +182,11 @@ def parse_decision(stdout: str, cfg: Config, existing: list[dict], relay_parent:
                 raise InvalidDecision(f"修改已有的 {path} 需要一份状态为 proposed 的建议页")
         if task.get("proposal") is not None and not nonempty_str(task["proposal"]):
             raise InvalidDecision(f"任务 {i} 的 proposal 必须是路径")
+        eligible = cfg.eligible(skill)
+        if task.get("engine") is None:
+            task["engine"] = cfg.coordinator if cfg.coordinator in eligible else eligible[0]
+        elif task["engine"] not in eligible:
+            raise InvalidDecision(f"skill {skill.name} 不能在引擎 {task['engine']} 上运行，可选：{'、'.join(eligible)}")
         if task.get("parent") is None and relay_parent:
             task["parent"] = relay_parent
         parent = task.get("parent")
@@ -190,7 +209,7 @@ def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict], thread: str,
     """The validated decision; ask_human when the output is invalid twice; None when the runner (and its
     fallback) failed."""
     role = cfg.roles["dispatcher"]
-    ledger = Ledger(cfg.usage_log, "relay" if relay_parent else "dispatch", relay_parent, thread)
+    ledger = Ledger(cfg.usage_log, cfg.engine_id, "relay" if relay_parent else "dispatch", relay_parent, thread)
     results = []
     try:
         error = None
@@ -216,30 +235,26 @@ def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict], thread: str,
         log.info("%s %s usage: %s", ledger.kind, relay_parent or thread, summary(results))
 
 
-def ingested_sources(root: Path) -> dict[str, str]:
-    """raw entry dir -> name of the wiki/sources page whose `raw` points at it."""
-    pages = {}
-    for page in sorted((root / "wiki" / "sources").glob("*.md")):
-        pages.setdefault(raw_dir((frontmatter_of(page.read_text()) or {}).get("raw")), page.stem)
-    return pages
-
-
 def register(cfg: Config, stem: str, task: dict) -> tuple[dict, str]:
-    """Capture the task's material and create its note; return (meta, block summary)."""
+    """Create the task's note (capturing its material first when this engine runs it); returns (meta, summary).
+    Another engine's task is registered `ready` with empty context: that engine captures when it runs it."""
     root = cfg.clone
-    items, mode = task.get("capture", []), task["capture_mode"]
-    context, failed, blocked = capture_all(items, root, mode)
-    status, summary, event = ("blocked", blocked, f"阻塞：{blocked}") if blocked else ("ready", None, None)
-    if not blocked and context and cfg.skills[task["skill"]].dedupe == "source" and not task.get("force"):
-        sources = ingested_sources(root)
-        if all(d in sources for d in context):
-            pages = "、".join(dict.fromkeys(f"[[{sources[d]}]]" for d in context))
-            status = "done"
-            summary = event = f"这份材料已经收录过：{pages}。如需重新整理，请说明要重做。"
+    items, mode, engine = task.get("capture", []), task["capture_mode"], task["engine"]
+    context, failed, blocked, status, summary, event = [], [], None, "ready", None, None
+    if engine == cfg.engine_id:
+        context, failed, blocked = capture_all(items, root, mode)
+        if blocked:
+            status, summary, event = "blocked", blocked, f"阻塞：{blocked}"
+        elif skipped := already_ingested(cfg, task, context):
+            status, summary, event = "done", skipped, skipped
+    else:
+        summary = f"{task['title'].strip()}（等待 {engine} 引擎执行）"
     extra = {"capture_mode": mode}
     if failed and not blocked:
         extra["capture_failed"] = failed
     extra |= {k: task[k] for k in ("force", "grant", "proposal") if task.get(k)}
+    if cfg.registry:
+        extra["engine"] = engine
     meta = create_task(root, title=task["title"].strip(), status=status, role=task["role"], skill=task["skill"],
                        project=task.get("project"), thread_stem=stem, brief=task["brief"].strip(), capture=items,
                        context=context, event=event, parent=task.get("parent"), depth=task.get("depth", 0),

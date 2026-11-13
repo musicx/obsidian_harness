@@ -16,11 +16,11 @@ from work_sheet.context import query_text, write_packs
 from work_sheet.feeds import is_recent
 from work_sheet.generated import append_log, regenerate
 from work_sheet.gitops import commit, push, tracked_files
-from work_sheet.lint import lint
+from work_sheet.lint import frontmatter_of, lint
 from work_sheet.runner import run_runner
 from work_sheet.usage import Ledger, RunResult, add_up, describe
-from work_sheet.vault import (add_log, brief_of, is_generated, now, page_link, parse_frontmatter, read_task,
-                              thread_path, update_block, write_task)
+from work_sheet.vault import (add_log, brief_of, is_generated, now, page_link, parse_frontmatter, raw_dir,
+                              read_task, thread_path, update_block, write_task)
 
 log = logging.getLogger(__name__)
 
@@ -192,7 +192,7 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
 
         try:
             results, note = run_runner(cfg.runners, role.runner, role.prompt, prompt, view, run_dir,
-                                       role.timeout_minutes * 60, Ledger(cfg.usage_log, kind, meta["id"], thread),
+                                       role.timeout_minutes * 60, Ledger(cfg.usage_log, cfg.engine_id, kind, meta["id"], thread),
                                        restore)
         finally:
             shutil.rmtree(saved)
@@ -261,6 +261,51 @@ def finish(cfg: Config, meta: dict, body: str, status: str, summary: str, event:
         log.error("task %s: conflicted again while recording the conflict", task_id)
 
 
+def already_ingested(cfg: Config, task: dict, context: list[str]) -> str | None:
+    """For a `dedupe: source` skill: the block summary when every captured entry already has a source page."""
+    if not context or cfg.skills[task["skill"]].dedupe != "source" or task.get("force"):
+        return None
+    sources = {}
+    for page in sorted((cfg.clone / "wiki" / "sources").glob("*.md")):
+        sources.setdefault(raw_dir((frontmatter_of(page.read_text()) or {}).get("raw")), page.stem)
+    if not all(d in sources for d in context):
+        return None
+    pages = "、".join(dict.fromkeys(f"[[{sources[d]}]]" for d in context))
+    return f"这份材料已经收录过：{pages}。如需重新整理，请说明要重做。"
+
+
+def claim(cfg: Config, task_id: str, role: Role) -> tuple[dict, str] | None:
+    """Capture pending material and mark the task running; the successful push is the claim.
+    Returns the claimed (meta, body), or None when the task was finished here without a run or was lost."""
+    root = cfg.clone
+    for _ in range(2):
+        meta, body = read_task(root, task_id)
+        if meta.get("status") != "ready" or not cfg.owns(meta):
+            log.info("task %s is no longer this engine's ready task", task_id)
+            return None
+        if meta.get("capture") and not meta.get("context"):
+            meta["context"], failed, blocked = capture_all(meta["capture"], root, meta.get("capture_mode", "all"))
+            if blocked:
+                finish(cfg, meta, body, "blocked", blocked, f"阻塞：{blocked}")
+                return None
+            if failed:
+                meta["capture_failed"] = failed
+            if skipped := already_ingested(cfg, meta, meta["context"]):
+                finish(cfg, meta, body, "done", skipped, skipped)
+                return None
+        meta["status"] = "running"
+        meta["attempts"] = int(meta.get("attempts") or 0) + 1
+        meta["claimed_at"] = now().astimezone().isoformat(timespec="seconds")
+        body = add_log(body, f"派发 → {role.runner}")
+        write_task(root, meta, body)
+        update_block(root, meta, meta["title"])
+        commit(cfg, f"task({task_id}): running", role.id, [task_id])
+        if push(cfg):
+            return meta, body
+        log.warning("task %s: claim was not pushed; re-checking after the sync", task_id)
+    return None
+
+
 def run_task(cfg: Config, task_id: str) -> None:
     root = cfg.clone
     meta, body = read_task(root, task_id)
@@ -271,26 +316,9 @@ def run_task(cfg: Config, task_id: str) -> None:
                   else f"这台机器没有配置 runner {role.runner}，无法运行")
         finish(cfg, meta, body, "failed", reason, f"失败：{reason}")
         return
-    if meta.get("capture") and not meta.get("context"):
-        meta["context"], failed, blocked = capture_all(meta["capture"], root, meta.get("capture_mode", "all"))
-        if blocked:
-            meta["status"] = "blocked"
-            write_task(root, meta, add_log(body, f"阻塞：{blocked}"))
-            update_block(root, meta, blocked)
-            commit(cfg, f"task({task_id}): blocked", role.id, [task_id])
-            push(cfg)
-            return
-        if failed:
-            meta["capture_failed"] = failed
-    meta["status"] = "running"
-    meta["attempts"] = int(meta.get("attempts") or 0) + 1
-    body = add_log(body, f"派发 → {role.runner}")
-    write_task(root, meta, body)
-    update_block(root, meta, meta["title"])
-    commit(cfg, f"task({task_id}): running", role.id, [task_id])
-    if not push(cfg):
-        log.warning("task %s: could not mark running; skipped this tick", task_id)
+    if not (claimed := claim(cfg, task_id, role)):
         return
+    meta, body = claimed
     log.info("task %s: running %s/%s via %s", task_id, role.id, skill.name, role.runner)
 
     runs = []
@@ -303,13 +331,17 @@ def run_task(cfg: Config, task_id: str) -> None:
         body = add_log(body, event)
     if status == "done":
         meta["outputs"] = created + modified
+        meta |= {"files_created": created, "files_modified": modified, "files_deleted": deleted}
         uncaptured = [f.rsplit("：", 1)[0] for f in meta.get("capture_failed") or []]
         summary += output_list(created, modified, uncaptured)
         if extras:
             meta |= {f"report_{k}": v for k, v in extras.items()}
             meta["relay"] = "pending"
-        append_log(root, skill.name, meta["title"], created, modified, deleted)
-        regenerate(root)
+        # Only the coordinator writes the log and generated files; a worker's task is logged by its post step.
+        meta["logged"] = cfg.is_coordinator
+        if cfg.is_coordinator:
+            append_log(root, skill.name, meta["title"], created, modified, deleted)
+            regenerate(root)
         event = "完成" + "".join(f"；{k}：{json.dumps(v, ensure_ascii=False, default=str)}"
                                for k, v in extras.items())
     else:

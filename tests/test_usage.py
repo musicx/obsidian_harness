@@ -86,7 +86,7 @@ def test_usage_recorded_for_dispatch_and_task(seeded: Env):
     assert [(line["kind"], line["task"], line["thread"], line["runner"], line["fallback"]) for line in lines] == [
         ("dispatch", None, "inbox/a.md", "small", False), ("task", task["id"], "inbox/a.md", "strong", False)]
     assert lines[1] | {"time": None, "seconds": None} == {
-        "time": None, "kind": "task", "task": task["id"], "thread": "inbox/a.md", "runner": "strong",
+        "time": None, "engine": "main", "kind": "task", "task": task["id"], "thread": "inbox/a.md", "runner": "strong",
         "model": "anthropic/claude-test", "input": 1500, "output": 150, "cache_read": 5000, "cache_write": 0,
         "cost_usd": 0.03, "seconds": None, "fallback": False}
     usage_json = json.loads((env.state / "vault" / "runs" / task["id"] / "usage.json").read_text())

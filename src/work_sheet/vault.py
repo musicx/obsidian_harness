@@ -8,9 +8,10 @@ import yaml
 
 FRONTMATTER = re.compile(r"---\n(.*?\n)?---[ \t]*(?:\n|$)", re.S)
 ENGINE_HEADERS = ("> [!task]", "> [!note] dispatcher")
-TASK_KEYS = ["id", "title", "status", "role", "skill", "project", "thread", "parent", "depth", "attempts",
-             "created", "capture", "capture_mode", "capture_failed", "context", "force", "grant", "proposal", "outputs", "usage",
-             "relay", "report_handoff", "report_capture"]
+TASK_KEYS = ["id", "title", "status", "role", "skill", "engine", "project", "thread", "parent", "depth", "attempts",
+             "created", "claimed_at", "capture", "capture_mode", "capture_failed", "context", "force", "grant",
+             "proposal", "outputs", "files_created", "files_modified", "files_deleted", "logged", "usage", "relay",
+             "report_handoff", "report_capture"]
 
 
 class _Dumper(yaml.SafeDumper):

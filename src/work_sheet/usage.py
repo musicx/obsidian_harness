@@ -35,12 +35,14 @@ class RunResult:
 class Ledger:
     """Where and under which labels to record each invocation."""
     path: Path  # <state>/<workspace>/usage.jsonl
+    engine: str
     kind: str  # dispatch | relay | task | repair | eval
     task: str | None = None
     thread: str | None = None
 
     def record(self, result: RunResult) -> None:
-        line = {"time": datetime.now().astimezone().isoformat(timespec="seconds"), "kind": self.kind,
+        line = {"time": datetime.now().astimezone().isoformat(timespec="seconds"), "engine": self.engine,
+                "kind": self.kind,
                 "task": self.task, "thread": self.thread} | usage_record(result)
         line["fallback"] = result.fallback
         with self.path.open("a") as f:
