@@ -13,10 +13,12 @@ import yaml
 from work_sheet.capture import capture_all
 from work_sheet.config import Config, Role, Skill
 from work_sheet.context import query_text, write_packs
+from work_sheet.feeds import is_recent
 from work_sheet.generated import append_log, regenerate
 from work_sheet.gitops import commit, push, tracked_files
 from work_sheet.lint import lint
 from work_sheet.runner import run_runner
+from work_sheet.usage import Ledger, RunResult, add_up, describe
 from work_sheet.vault import (add_log, brief_of, is_generated, now, page_link, parse_frontmatter, read_task,
                               thread_path, update_block, write_task)
 
@@ -148,8 +150,9 @@ def runner_failure(code: int | None) -> str | None:
     return f"运行失败（退出码 {code}）" if code else None
 
 
-def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill) -> Outcome:
-    """Run the role in a fresh view (plus one repair pass if checks fail); on success import its files."""
+def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: list[RunResult]) -> Outcome:
+    """Run the role in a fresh view (plus one repair pass if checks fail); on success import its files.
+    Every runner invocation is appended to `runs`."""
     root = cfg.clone
     thread = thread_path(meta)
     grant = meta.get("grant") or []
@@ -178,7 +181,7 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill) -> Out
 
     events = []
 
-    def run(prompt: str, run_dir: Path) -> tuple[int | None, str]:
+    def run(prompt: str, run_dir: Path, kind: str) -> tuple[int | None, str]:
         saved = Path(tempfile.mkdtemp(prefix="worksheet-saved-"))
         shutil.copytree(view, saved, dirs_exist_ok=True)
 
@@ -188,17 +191,21 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill) -> Out
             shutil.copytree(saved, view)
 
         try:
-            code, stdout, note = run_runner(cfg.runners, role.runner, role.prompt, prompt, view, run_dir,
-                                            role.timeout_minutes * 60, restore)
+            results, note = run_runner(cfg.runners, role.runner, role.prompt, prompt, view, run_dir,
+                                       role.timeout_minutes * 60, Ledger(cfg.usage_log, kind, meta["id"], thread),
+                                       restore)
         finally:
             shutil.rmtree(saved)
+        runs.extend(results)
         if note:
             events.append(note)
-        return code, stdout
+        return results[-1].code, results[-1].text
 
     try:
+        today = now().date()
         for path in tracked:
-            if matches(path, read_patterns):
+            # The vault keeps every briefing; agents only see the recent ones.
+            if matches(path, read_patterns) and (not path.startswith("briefings/") or is_recent(root / path, today)):
                 (view / path).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(root / path, view / path)
         shutil.copytree(skill.dir, view / "_skill")
@@ -210,14 +217,14 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill) -> Out
         prompt = f'{TASK_PROMPT}\n\n<skill name="{skill.name}" dir="_skill">\n{skill.body}\n</skill>\n'
         before = snapshot(view)
         run_dir = cfg.runs / meta["id"]
-        code, stdout = run(prompt, run_dir)
+        code, stdout = run(prompt, run_dir, "task")
         if failure := runner_failure(code):
             return Outcome("failed", failure, events=events)
         created, modified, deleted, failure = check()
         if failure:
             events.append("检查未通过，已要求修正一次")
             (view / "_feedback.md").write_text(failure + "\n")
-            code, stdout = run(REPAIR_PROMPT, run_dir / "repair")
+            code, stdout = run(REPAIR_PROMPT, run_dir / "repair", "repair")
             if failure := runner_failure(code):
                 return Outcome("failed", failure, events=events)
             created, modified, deleted, failure = check()
@@ -286,7 +293,9 @@ def run_task(cfg: Config, task_id: str) -> None:
         return
     log.info("task %s: running %s/%s via %s", task_id, role.id, skill.name, role.runner)
 
-    outcome = execute(cfg, meta, body, role, skill)
+    runs = []
+    outcome = execute(cfg, meta, body, role, skill, runs)
+    meta["usage"] = add_up(meta.get("usage"), runs)
     status, summary, extras = outcome.status, outcome.summary, outcome.extras
     created, modified, deleted = outcome.created, outcome.modified, outcome.deleted
     log.info("task %s: %s", task_id, status)
@@ -305,4 +314,4 @@ def run_task(cfg: Config, task_id: str) -> None:
                                for k, v in extras.items())
     else:
         event = ("失败：" if status == "failed" else "阻塞：") + summary
-    finish(cfg, meta, body, status, summary, event)
+    finish(cfg, meta, body, status, summary, event + describe(add_up(None, runs)))

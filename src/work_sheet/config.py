@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from work_sheet.context import PACKS
+from work_sheet.usage import FORMATS
 from work_sheet.vault import parse_frontmatter
 
 
@@ -39,9 +40,11 @@ class Skill:
 
 @dataclass
 class Runner:
+    name: str
     command: list[str]
     env: dict[str, str]
     fallback: str | None  # runner to use once when this one fails
+    format: str  # stdout format: text | pi-json | grok-json
 
 
 @dataclass
@@ -82,6 +85,10 @@ class Config:
     @property
     def runs(self) -> Path:
         return self.state_dir / "runs"
+
+    @property
+    def usage_log(self) -> Path:
+        return self.state_dir / "usage.jsonl"
 
 
 def load_role(path: Path) -> Role:
@@ -158,11 +165,13 @@ def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: 
         workspace = next(iter(workspaces))
     ws = workspaces[workspace]
     runners_file = runners_file or config_dir / "runners.toml"
-    runners = {name: Runner(r["command"], r.get("env", {}), r.get("fallback"))
+    runners = {name: Runner(name, r["command"], r.get("env", {}), r.get("fallback"), r.get("format", "text"))
                for name, r in load_toml(runners_file)["runners"].items()}
     for name, runner in runners.items():
         if runner.fallback and runner.fallback not in runners:
             raise SystemExit(f"{runners_file}: fallback {runner.fallback!r} of runner {name!r} is not defined")
+        if runner.format not in FORMATS:
+            raise SystemExit(f"{runners_file}: format of runner {name!r} must be one of {', '.join(FORMATS)}")
     feeds_file = feeds_file or config_dir / "feeds.toml"
     feeds = {name: Feed(name, f["title"], Path(f["source"]), f["pattern"], f["cadence"], f.get("url"),
                         f.get("since") or None)

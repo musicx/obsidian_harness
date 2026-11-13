@@ -3,10 +3,12 @@
 # A different environment changes .env; an entirely different CLI gets its own
 # config directory (WORKSHEET_CONFIG_DIR). Roles stay unchanged either way.
 # Placeholders filled per run: {system_prompt_file}, {system_prompt}, {prompt_file}, {view}.
+# `format` tells the engine how to read stdout (text | pi-json | grok-json); the JSON formats report token usage.
 
 [runners.small]
+format = "pi-json"
 command = [
-  "${WORKSHEET_PI_BIN}", "-p", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
+  "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
   "--no-tools",
   "--model", "${WORKSHEET_SMALL_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
@@ -14,8 +16,9 @@ command = [
 ]
 
 [runners.strong]
+format = "pi-json"
 command = [
-  "${WORKSHEET_PI_BIN}", "-p", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
+  "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
   "--tools", "read,grep,find,ls,edit,write",
   "--model", "${WORKSHEET_STRONG_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
@@ -23,8 +26,9 @@ command = [
 ]
 
 [runners.web]
+format = "grok-json"
 command = [
-  "${WORKSHEET_GROK_BIN}", "--prompt-file", "{prompt_file}", "--cwd", "{view}",
+  "${WORKSHEET_GROK_BIN}", "--prompt-file", "{prompt_file}", "--cwd", "{view}", "--output-format", "json",
   "--always-approve", "--no-subagents", "--no-plan", "--max-turns", "60",
   "--disallowed-tools", "run_terminal_cmd,Agent",
   "--rules", "{system_prompt}",

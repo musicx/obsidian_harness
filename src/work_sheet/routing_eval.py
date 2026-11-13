@@ -7,6 +7,7 @@ from pathlib import Path
 from work_sheet.config import Config
 from work_sheet.dispatch import InvalidDecision, build_prompt, parse_decision
 from work_sheet.runner import run_runner
+from work_sheet.usage import Ledger
 
 
 def run_case(cfg: Config, case: dict, n: int) -> tuple[bool, str]:
@@ -16,8 +17,10 @@ def run_case(cfg: Config, case: dict, n: int) -> tuple[bool, str]:
     prompt = build_prompt(cfg, f"inbox/{case['id']}.md", case.get("handled", ""), case["text"], existing,
                           case.get("projects"))
     with tempfile.TemporaryDirectory(prefix="worksheet-") as cwd:
-        code, stdout, _ = run_runner(cfg.runners, role.runner, role.prompt, prompt, Path(cwd),
-                                     cfg.runs / "eval" / f"{case['id']}-{n}", role.timeout_minutes * 60)
+        runs, _ = run_runner(cfg.runners, role.runner, role.prompt, prompt, Path(cwd),
+                             cfg.runs / "eval" / f"{case['id']}-{n}", role.timeout_minutes * 60,
+                             Ledger(cfg.usage_log, "eval"))
+    code, stdout = runs[-1].code, runs[-1].text
     if code != 0:
         return False, "运行超时" if code is None else f"运行失败（退出码 {code}）"
     try:

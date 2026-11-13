@@ -10,6 +10,7 @@ from work_sheet.config import Config
 from work_sheet.gitops import commit, push
 from work_sheet.lint import frontmatter_of
 from work_sheet.runner import run_runner
+from work_sheet.usage import Ledger, summary
 from work_sheet.tasks import matches
 from work_sheet.vault import (append_block, block_summary, create_task, list_tasks, quote, raw_dir, read_task,
                               split_thread, task_block, thread_path, write_task)
@@ -184,29 +185,35 @@ def new_run_dir(cfg: Config) -> Path:
     return cfg.runs / f"dispatch-{max(numbers, default=0) + 1}"
 
 
-def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict],
+def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict], thread: str,
                    relay_parent: str | None = None) -> dict | None:
     """The validated decision; ask_human when the output is invalid twice; None when the runner (and its
     fallback) failed."""
     role = cfg.roles["dispatcher"]
-    error = None
-    for _ in range(2):
-        if error:
-            prompt += f"\n# Your previous output was invalid\n\n{error}\n"
-        with tempfile.TemporaryDirectory(prefix="worksheet-") as cwd:
-            code, stdout, _ = run_runner(cfg.runners, role.runner, role.prompt, prompt, Path(cwd),
-                                         new_run_dir(cfg), role.timeout_minutes * 60)
-        if code != 0:
-            # An outage, not a routing problem: create nothing and let the next tick try again.
-            log.warning("dispatcher runner failed (%s); will retry next tick",
-                        "timeout" if code is None else f"exit {code}")
-            return None
-        try:
-            return parse_decision(stdout, cfg, existing, relay_parent)
-        except InvalidDecision as e:
-            error = str(e)
-            log.warning("invalid dispatcher output: %s", error)
-    return {"action": "ask_human", "reason": error, "question": f"调度失败：{error}"}
+    ledger = Ledger(cfg.usage_log, "relay" if relay_parent else "dispatch", relay_parent, thread)
+    results = []
+    try:
+        error = None
+        for _ in range(2):
+            if error:
+                prompt += f"\n# Your previous output was invalid\n\n{error}\n"
+            with tempfile.TemporaryDirectory(prefix="worksheet-") as cwd:
+                runs, _ = run_runner(cfg.runners, role.runner, role.prompt, prompt, Path(cwd), new_run_dir(cfg),
+                                     role.timeout_minutes * 60, ledger)
+            results += runs
+            if runs[-1].code != 0:
+                # An outage, not a routing problem: create nothing and let the next tick try again.
+                log.warning("dispatcher runner failed (%s); will retry next tick",
+                            "timeout" if runs[-1].code is None else f"exit {runs[-1].code}")
+                return None
+            try:
+                return parse_decision(runs[-1].text, cfg, existing, relay_parent)
+            except InvalidDecision as e:
+                error = str(e)
+                log.warning("invalid dispatcher output: %s", error)
+        return {"action": "ask_human", "reason": error, "question": f"调度失败：{error}"}
+    finally:
+        log.info("%s %s usage: %s", ledger.kind, relay_parent or thread, summary(results))
 
 
 def ingested_sources(root: Path) -> dict[str, str]:
@@ -283,7 +290,8 @@ def dispatch_thread(cfg: Config, path: str) -> None:
     stem = PurePosixPath(path).stem
     handled, new = split_thread((root / path).read_text())
     existing = thread_tasks(root, stem)
-    decision = ask_dispatcher(cfg, build_prompt(cfg, path, handled, new, existing, projects_text(root)), existing)
+    decision = ask_dispatcher(cfg, build_prompt(cfg, path, handled, new, existing, projects_text(root)), existing,
+                              path)
     if decision is None:
         return
     ids = apply_decision(cfg, path, decision)
@@ -319,7 +327,7 @@ def dispatch_relay(cfg: Config, task_id: str) -> bool:
 
 {capture_requests}"""
     prompt = build_prompt(cfg, path, handled, "(none)", existing, projects_text(root), finished)
-    decision = ask_dispatcher(cfg, prompt, existing, relay_parent=task_id)
+    decision = ask_dispatcher(cfg, prompt, existing, path, relay_parent=task_id)
     if decision is None:
         return False
     ids = apply_decision(cfg, path, decision, note_on_ignore=False)
