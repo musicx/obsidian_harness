@@ -1,0 +1,70 @@
+properties:
+  file.name:
+    displayName: 页面
+  note.description:
+    displayName: 说明
+  note.doc_date:
+    displayName: 材料日期
+  note.topics:
+    displayName: 主题
+  note.aliases:
+    displayName: 别名
+  note.updated:
+    displayName: 更新于
+views:
+  - type: table
+    name: 最近收录
+    filters:
+      and:
+        - file.inFolder("wiki/sources")
+        - 'type == "source"'
+    sort:
+      - property: updated
+        direction: DESC
+    limit: 15
+    order:
+      - file.name
+      - description
+      - doc_date
+      - topics
+      - updated
+  - type: table
+    name: 概念
+    filters:
+      and:
+        - file.inFolder("wiki/concepts")
+        - 'type == "concept"'
+    sort:
+      - property: file.name
+        direction: ASC
+    order:
+      - file.name
+      - description
+      - topics
+      - aliases
+      - updated
+  - type: table
+    name: 实体
+    filters:
+      and:
+        - file.inFolder("wiki/entities")
+        - 'type == "entity"'
+    sort:
+      - property: file.name
+        direction: ASC
+    order:
+      - file.name
+      - description
+      - topics
+      - aliases
+      - updated
+  - type: table
+    name: 我们的做法
+    filters:
+      and:
+        - file.inFolder("practice")
+        - 'type == "practice"'
+    order:
+      - file.name
+      - description
+      - updated

@@ -1,0 +1,52 @@
+properties:
+  file.name:
+    displayName: 页面
+  note.title:
+    displayName: 标题
+  note.status:
+    displayName: 状态
+  note.role:
+    displayName: 角色
+  note.skill:
+    displayName: 操作
+  note.thread:
+    displayName: 线程
+  note.target:
+    displayName: 目标文档
+  note.source:
+    displayName: 依据
+  note.created:
+    displayName: 创建于
+views:
+  - type: table
+    name: 需要我处理的任务
+    filters:
+      and:
+        - file.inFolder("tasks")
+        - or:
+            - 'status == "blocked"'
+            - 'status == "failed"'
+    sort:
+      - property: created
+        direction: DESC
+    order:
+      - file.name
+      - title
+      - status
+      - skill
+      - thread
+      - created
+  - type: table
+    name: 待采纳的建议
+    filters:
+      and:
+        - file.inFolder("proposals")
+        - 'status == "proposed"'
+    sort:
+      - property: created
+        direction: DESC
+    order:
+      - file.name
+      - target
+      - source
+      - created

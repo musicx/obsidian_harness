@@ -1,0 +1,27 @@
+filters:
+  and:
+    - file.inFolder("tasks")
+properties:
+  note.title:
+    displayName: 标题
+  note.skill:
+    displayName: 操作
+  note.role:
+    displayName: 角色
+views:
+  - type: kanban
+    name: Board
+    groupBy:
+      property: status
+      direction: ASC
+    groupOrder:
+      - ready
+      - running
+      - blocked
+      - failed
+      - done
+      - cancelled
+    order:
+      - title
+      - skill
+      - role

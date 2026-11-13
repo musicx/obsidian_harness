@@ -1,0 +1,25 @@
+filters:
+  and:
+    - file.inFolder("projects")
+    - 'type == "project-status"'
+properties:
+  note.project:
+    displayName: 项目
+  note.health:
+    displayName: 状态
+  note.as_of:
+    displayName: 截至
+  note.description:
+    displayName: 说明
+views:
+  - type: table
+    name: 项目
+    sort:
+      - property: as_of
+        direction: DESC
+    order:
+      - project
+      - health
+      - as_of
+      - description
+      - file.name
