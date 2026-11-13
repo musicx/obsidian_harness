@@ -17,8 +17,8 @@ from work_sheet.generated import append_log, regenerate
 from work_sheet.gitops import commit, push, tracked_files
 from work_sheet.lint import lint
 from work_sheet.runner import run_runner
-from work_sheet.vault import (add_log, brief_of, is_generated, page_link, parse_frontmatter, read_task, thread_path,
-                              update_block, write_task)
+from work_sheet.vault import (add_log, brief_of, is_generated, now, page_link, parse_frontmatter, read_task,
+                              thread_path, update_block, write_task)
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ CONFLICT = "与远端的改动冲突，产出未导入"
 
 BRIEF = """# 任务 {id}：{title}
 
+- 今天的日期：{today}
 - 操作规程：_skill/SKILL.md（已附在提示中）
 - 线程页：{thread}
 - 本次材料：{context}
@@ -82,7 +83,8 @@ def bullet(label: str, items: list[str]) -> str:
 
 def render_brief(meta: dict, body: str, thread: str, write: list[str], shared: list[str], packs: list[str]) -> str:
     context = "".join(f"\n  - {d}" for d in meta.get("context") or []) or "（无）"
-    return BRIEF.format(id=meta["id"], title=meta["title"], thread=thread, context=context,
+    return BRIEF.format(id=meta["id"], title=meta["title"], today=f"{now():%Y-%m-%d}", thread=thread,
+                        context=context,
                         failed=bullet("采集失败的材料", meta.get("capture_failed") or []),
                         shared=bullet("共用规范", [f"_skills/{s}/SKILL.md" for s in shared]),
                         packs=bullet("参考资料", [f"_context/{p}" for p in packs]),

@@ -387,6 +387,7 @@ ready ──► running ──► done
 |---|---|
 | `WORKSHEET_VAULT_REMOTE`、`WORKSHEET_VAULT_BRANCH` | vault 仓库的地址和分支 |
 | `WORKSHEET_BOT_NAME`、`WORKSHEET_BOT_EMAIL` | 引擎在 vault 里提交时用的身份 |
+| `WORKSHEET_TIMEZONE` | 写进 vault 的所有日期所用的时区；引擎所在机器与人不在同一时区时设置 |
 | `WORKSHEET_STATE_DIR`、`WORKSHEET_CONFIG_DIR`、`WORKSHEET_ROLES_DIR`、`WORKSHEET_SKILLS_DIR`、`WORKSHEET_VAULT_TEMPLATE_DIR` | 引擎状态、配置、角色、skill、vault 模板所在目录 |
 | `WORKSHEET_PI_BIN`、`WORKSHEET_GROK_BIN` | 两个 agent CLI 的可执行文件 |
 | `WORKSHEET_SMALL_MODEL`、`WORKSHEET_STRONG_MODEL`、`WORKSHEET_WEB_MODEL` | 三个逻辑 runner 各自的模型 |

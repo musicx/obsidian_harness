@@ -1,7 +1,11 @@
 import json
 import logging
+import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from conftest import FAKES, LIBRARIAN_ROLE, Env, git, make_config, register
@@ -167,3 +171,38 @@ def test_oracle_config_loads(env: Env, monkeypatch):
         "forum": ("/srv/digest/www/data/forum", "weekly", "2026-11-01")}
     assert cfg.feeds["forum"].url == "https://example.org/news/forum/?d={date}"
     assert "research" not in {s.name for s in cfg.dispatchable()}  # no web runner on that host
+
+
+# --- time zone -------------------------------------------------------------------------------------------
+
+@pytest.fixture
+def restore_tz(monkeypatch):
+    """main() sets TZ and calls tzset(); put the process zone back afterwards."""
+    monkeypatch.setenv("TZ", os.environ.get("TZ", "UTC"))
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_timezone_sets_task_dates(seeded: Env, monkeypatch, restore_tz):
+    env = seeded
+    utc_today = datetime.now(timezone.utc).date()
+    # One of these is always on a different calendar day than UTC.
+    zone = next(z for z in ("Pacific/Kiritimati", "Etc/GMT+12") if datetime.now(ZoneInfo(z)).date() != utc_today)
+    local_today = datetime.now(ZoneInfo(zone)).date()
+    monkeypatch.setenv("WS_MODE", "noop")
+    monkeypatch.setenv("WORKSHEET_TIMEZONE", zone)
+    env.push({"inbox/a.md": "收录点什么\n"})
+    env.respond(register(capture=[]))
+    env.tick()
+    env.pull()
+    [task] = env.new_tasks()
+    assert task["id"].startswith(f"T-{local_today:%Y%m%d}-") and task["created"].startswith(str(local_today))
+    brief = env.listing.with_suffix(".brief.md").read_text()
+    assert brief.split("\n")[2] == f"- 今天的日期：{local_today}"
+
+
+def test_invalid_timezone_aborts(env: Env, monkeypatch, restore_tz):
+    monkeypatch.setenv("WORKSHEET_TIMEZONE", "Mars/Olympus_Mons")
+    with pytest.raises(SystemExit, match="WORKSHEET_TIMEZONE='Mars/Olympus_Mons' is not a valid IANA time zone"):
+        env.tick()

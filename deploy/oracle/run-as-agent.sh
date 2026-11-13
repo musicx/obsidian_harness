@@ -13,5 +13,10 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 sudo -n chown -R "$agent" "$view" || exit 1
-sudo -n -u "$agent" -H -- env -C "$view" "$@"
+# sudo resets the environment, so pass the engine's time zone through explicitly.
+if [[ -n "${TZ:-}" ]]; then
+    sudo -n -u "$agent" -H -- env -C "$view" TZ="$TZ" "$@"
+else
+    sudo -n -u "$agent" -H -- env -C "$view" "$@"
+fi
 exit $?

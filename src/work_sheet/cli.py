@@ -3,6 +3,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from work_sheet.config import load_config
 from work_sheet.engine import tick
@@ -37,6 +38,14 @@ def load_dotenv(path: Path) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     load_dotenv(Path(".env"))
+    if zone := os.environ.get("WORKSHEET_TIMEZONE"):
+        try:
+            ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise SystemExit(f"WORKSHEET_TIMEZONE={zone!r} is not a valid IANA time zone name (e.g. Asia/Tokyo)")
+        # Every date the engine writes comes from local time; child processes inherit TZ too.
+        os.environ["TZ"] = zone
+        time.tzset()
     env = os.environ.get
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config-dir", type=Path, default=Path(env("WORKSHEET_CONFIG_DIR", "config")))
