@@ -4,6 +4,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from work_sheet.context import PACKS
 from work_sheet.vault import parse_frontmatter
 
 
@@ -17,9 +18,23 @@ class Role:
     write: list[str]
     skills: list[str]
     timeout_minutes: int
-    needs_project: bool
     grantable: list[str]
     prompt: str
+
+
+@dataclass
+class Skill:
+    name: str
+    description: str
+    role: str | None  # None: a shared reference skill, not dispatchable
+    context: list[str]
+    uses: list[str]
+    read: list[str]  # extra read patterns for tasks using this skill
+    needs_project: bool
+    dedupe: str | None
+    allow_shrink: bool
+    dir: Path
+    body: str
 
 
 @dataclass
@@ -37,8 +52,13 @@ class Config:
     bot_email: str
     runners: dict[str, Runner]
     roles: dict[str, Role]
+    skills: dict[str, Skill]
     routing: str | None
     state_dir: Path  # <state>/<workspace>
+    template_dir: Path
+
+    def dispatchable(self) -> list[Skill]:
+        return [s for s in self.skills.values() if s.role and s.role != "dispatcher"]
 
     @property
     def clone(self) -> Path:
@@ -60,10 +80,34 @@ def load_role(path: Path) -> Role:
         write=list(meta.get("write") or []),
         skills=list(meta.get("skills") or []),
         timeout_minutes=int(meta.get("timeout_minutes", 20)),
-        needs_project=bool(meta.get("needs_project", False)),
         grantable=list(meta.get("grantable") or []),
         prompt=body.strip(),
     )
+
+
+def load_skill(path: Path, roles: dict[str, Role]) -> Skill:
+    meta, body = parse_frontmatter(path.read_text())
+    md = {k: str(v) for k, v in (meta.get("metadata") or {}).items()}
+    skill = Skill(
+        name=meta.get("name"),
+        description=str(meta.get("description") or ""),
+        role=md.get("role") or None,
+        context=md.get("context", "").split(),
+        uses=md.get("uses", "").split(),
+        read=md.get("read", "").split(),
+        needs_project=md.get("needs_project", "").lower() == "true",
+        dedupe=md.get("dedupe") or None,
+        allow_shrink=md.get("allow_shrink", "").lower() == "true",
+        dir=path.parent,
+        body=body.strip(),
+    )
+    if skill.name != path.parent.name:
+        raise SystemExit(f"{path}: name {skill.name!r} must equal the folder name {path.parent.name!r}")
+    if skill.role and skill.role not in roles:
+        raise SystemExit(f"{path}: role {skill.role!r} is not defined in the roles directory")
+    if unknown := set(skill.context) - set(PACKS):
+        raise SystemExit(f"{path}: unknown context packs {sorted(unknown)}; known: {', '.join(PACKS)}")
+    return skill
 
 
 ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -90,7 +134,8 @@ def load_toml(path: Path) -> dict:
     return expand_env(tomllib.loads(path.read_text()), path)
 
 
-def load_config(config_dir: Path, roles_dir: Path, state_dir: Path, workspace: str | None) -> Config:
+def load_config(config_dir: Path, roles_dir: Path, skills_dir: Path, state_dir: Path, workspace: str | None,
+                template_dir: Path) -> Config:
     workspaces = load_toml(config_dir / "workspaces.toml")["workspaces"]
     if workspace is None:
         if len(workspaces) != 1:
@@ -99,6 +144,10 @@ def load_config(config_dir: Path, roles_dir: Path, state_dir: Path, workspace: s
     ws = workspaces[workspace]
     runners = load_toml(config_dir / "runners.toml")["runners"]
     roles = {r.id: r for r in map(load_role, sorted(roles_dir.glob("*.md")))}
+    skills = {s.name: s for s in (load_skill(p, roles) for p in sorted(skills_dir.glob("*/SKILL.md")))}
+    for skill in skills.values():
+        if missing := [u for u in skill.uses if u not in skills]:
+            raise SystemExit(f"{skill.dir / 'SKILL.md'}: uses unknown skills {missing}")
     routing_file = config_dir / "routing.md"
     return Config(
         workspace=workspace,
@@ -108,6 +157,8 @@ def load_config(config_dir: Path, roles_dir: Path, state_dir: Path, workspace: s
         bot_email=ws["bot_email"],
         runners={name: Runner(r["command"], r.get("env", {})) for name, r in runners.items()},
         roles=roles,
+        skills=skills,
         routing=routing_file.read_text() if routing_file.exists() else None,
         state_dir=state_dir / workspace,
+        template_dir=template_dir,
     )

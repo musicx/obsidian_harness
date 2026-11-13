@@ -30,6 +30,10 @@ def tracked_files(cfg: Config) -> list[str]:
     return [p for p in git(cfg, "ls-files", "-z").stdout.split("\0") if p]
 
 
+def dirty(cfg: Config) -> bool:
+    return bool(git(cfg, "status", "--porcelain").stdout.strip())
+
+
 def commit(cfg: Config, subject: str, role: str, task_ids: list[str] = ()) -> None:
     trailers = [f"Task: {t}" for t in task_ids] + [f"Role: {role}"]
     git(cfg, "add", "-A")

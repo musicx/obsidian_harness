@@ -2,14 +2,14 @@
 
 import re
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
 FRONTMATTER = re.compile(r"---\n(.*?\n)?---[ \t]*(?:\n|$)", re.S)
 ENGINE_HEADERS = ("> [!task]", "> [!note] dispatcher")
-TASK_KEYS = ["id", "title", "status", "role", "op", "project", "thread", "parent", "depth", "attempts",
-             "created", "capture", "capture_mode", "capture_failed", "context", "grant", "proposal", "outputs",
+TASK_KEYS = ["id", "title", "status", "role", "skill", "project", "thread", "parent", "depth", "attempts",
+             "created", "capture", "capture_mode", "capture_failed", "context", "force", "grant", "proposal", "outputs",
              "relay", "report_handoff", "report_capture"]
 
 
@@ -45,6 +45,38 @@ def dump_frontmatter(meta: dict, body: str) -> str:
 
 def now() -> datetime:
     return datetime.now()
+
+
+def as_list(value) -> list[str]:
+    """A frontmatter value that should be a list of strings (a lone string counts as one item)."""
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value] if isinstance(value, list) else []
+
+
+def link_target(link: str) -> str:
+    """`[[a/b|alias]]`, `[[a/b#h]]` or `a/b` -> `a/b`."""
+    return link.strip().removeprefix("[[").removesuffix("]]").split("|")[0].split("#")[0].strip()
+
+
+def raw_dir(value) -> str:
+    """The raw entry dir a source page's `raw` value points at (dir path, or link to it or its source.md)."""
+    target = link_target(str(value or "")).removesuffix(".md").rstrip("/")
+    return target.removesuffix("/source")
+
+
+def page_link(path: str) -> str:
+    if not path.endswith(".md"):
+        return f"`{path}`"
+    target = path.removesuffix(".md")
+    return f"[[{target}|{PurePosixPath(target).name}]]"
+
+
+GENERATED = {"wiki/index.md", "wiki/log.md", "projects/_index.md"}
+
+
+def is_generated(path: str) -> bool:
+    return path in GENERATED or PurePosixPath(path).name == "_index.md"
 
 
 # --- thread pages -----------------------------------------------------------
@@ -168,19 +200,18 @@ def next_task_id(root: Path) -> str:
     return f"{prefix}{max(seqs, default=0) + 1:03d}"
 
 
-def create_task(root: Path, *, title: str, status: str, role: str, op: str, project: str | None,
+def create_task(root: Path, *, title: str, status: str, role: str, skill: str, project: str | None,
                 thread_stem: str, brief: str, capture: list[str], context: list[str],
-                blocked_reason: str | None = None, parent: str | None = None, depth: int = 0,
-                **extra) -> dict:
+                event: str | None = None, parent: str | None = None, depth: int = 0, **extra) -> dict:
     meta = {
-        "id": next_task_id(root), "title": title, "status": status, "role": role, "op": op,
+        "id": next_task_id(root), "title": title, "status": status, "role": role, "skill": skill,
         "project": project or None, "thread": f"[[{thread_stem}]]", "parent": parent, "depth": depth,
         "attempts": 0, "created": f"{now():%Y-%m-%dT%H:%M}", "capture": capture,
         "context": context, "outputs": [], **extra,
     }
     body = f"## 简报\n{brief}\n\n## 记录\n- {now():%H:%M} 登记\n"
-    if blocked_reason:
-        body = add_log(body, f"阻塞：{blocked_reason}")
+    if event:
+        body = add_log(body, event)
     write_task(root, meta, body)
     return meta
 

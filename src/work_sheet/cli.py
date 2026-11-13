@@ -6,6 +6,7 @@ from pathlib import Path
 
 from work_sheet.config import load_config
 from work_sheet.engine import tick
+from work_sheet.routing_eval import run_eval
 
 log = logging.getLogger("work_sheet")
 
@@ -40,6 +41,9 @@ def main(argv: list[str] | None = None) -> None:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config-dir", type=Path, default=Path(env("WORKSHEET_CONFIG_DIR", "config")))
     common.add_argument("--roles-dir", type=Path, default=Path(env("WORKSHEET_ROLES_DIR", "roles")))
+    common.add_argument("--skills-dir", type=Path, default=Path(env("WORKSHEET_SKILLS_DIR", "skills")))
+    common.add_argument("--vault-template-dir", type=Path,
+                        default=Path(env("WORKSHEET_VAULT_TEMPLATE_DIR", "vault-template")))
     common.add_argument("--state-dir", type=Path, default=Path(env("WORKSHEET_STATE_DIR", ".state")))
     common.add_argument("--workspace", default=env("WORKSHEET_WORKSPACE"),
                         help="workspace name (default: the only one configured)")
@@ -48,10 +52,16 @@ def main(argv: list[str] | None = None) -> None:
     commands.add_parser("tick", parents=[common], help="run one pass")
     run = commands.add_parser("run", parents=[common], help="run passes in a loop until Ctrl-C")
     run.add_argument("--interval", type=int, default=60, help="seconds between passes")
+    evaluate = commands.add_parser("eval-routing", parents=[common], help="score the dispatcher on routing cases")
+    evaluate.add_argument("--cases", type=Path, default=Path("evals/routing.jsonl"))
+    evaluate.add_argument("--runs", type=int, default=3, help="dispatcher runs per case")
     args = parser.parse_args(argv)
 
-    cfg = load_config(args.config_dir, args.roles_dir, args.state_dir.resolve(), args.workspace)
+    cfg = load_config(args.config_dir, args.roles_dir, args.skills_dir, args.state_dir.resolve(), args.workspace,
+                      args.vault_template_dir.resolve())
     setup_logging(cfg.state_dir / "engine.log")
+    if args.command == "eval-routing":
+        raise SystemExit(run_eval(cfg, args.cases, args.runs))
     if args.command == "tick":
         tick(cfg)
         return

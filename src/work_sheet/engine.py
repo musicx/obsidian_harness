@@ -1,8 +1,10 @@
 import logging
+import shutil
 
 from work_sheet.config import Config
 from work_sheet.dispatch import dispatch_relay, dispatch_thread
-from work_sheet.gitops import commit, push, sync
+from work_sheet.generated import regenerate
+from work_sheet.gitops import commit, dirty, push, sync
 from work_sheet.tasks import run_task
 from work_sheet.vault import (add_log, block_status, list_tasks, read_task, set_block_status, split_thread,
                               thread_path, update_block, write_task)
@@ -17,6 +19,21 @@ MAX_PASSES = 10
 def pending_threads(cfg: Config) -> list[str]:
     return [p.relative_to(cfg.clone).as_posix() for p in sorted((cfg.clone / "inbox").glob("*.md"))
             if split_thread(p.read_text())[1].strip()]
+
+
+def scaffold(cfg: Config) -> None:
+    """Add missing vault-template files (never overwriting) and refresh the generated indexes."""
+    if cfg.template_dir.is_dir():
+        for src in sorted(cfg.template_dir.rglob("*")):
+            dest = cfg.clone / src.relative_to(cfg.template_dir)
+            if src.is_file() and not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dest)
+    regenerate(cfg.clone)
+    if dirty(cfg):
+        log.info("scaffolded vault files")
+        commit(cfg, "scaffold: vault files", "engine")
+        push(cfg)
 
 
 def reconcile(cfg: Config) -> None:
@@ -53,14 +70,17 @@ def tick(cfg: Config) -> None:
     if not sync(cfg):
         log.info("origin/%s has no commits yet; nothing to do", cfg.branch)
         return
+    scaffold(cfg)
     reconcile(cfg)
     for path in pending_threads(cfg):
         dispatch_thread(cfg, path)
     # Relays can register new ready tasks and finished tasks can request relays, so repeat until quiet.
+    unavailable = set()  # relays whose dispatcher call failed; retried next tick, not in every pass
     for _ in range(MAX_PASSES):
-        relays = [m["id"] for m in list_tasks(cfg.clone) if m.get("relay") == "pending"]
+        relays = [m["id"] for m in list_tasks(cfg.clone) if m.get("relay") == "pending" and m["id"] not in unavailable]
         for task_id in relays:
-            dispatch_relay(cfg, task_id)
+            if not dispatch_relay(cfg, task_id):
+                unavailable.add(task_id)
         ready = [m["id"] for m in list_tasks(cfg.clone) if m.get("status") == "ready"]  # sorted by id
         for task_id in ready:
             run_task(cfg, task_id)

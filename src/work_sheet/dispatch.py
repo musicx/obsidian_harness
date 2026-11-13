@@ -11,8 +11,8 @@ from work_sheet.gitops import commit, push
 from work_sheet.lint import frontmatter_of
 from work_sheet.runner import run_cli
 from work_sheet.tasks import matches
-from work_sheet.vault import (append_block, block_summary, create_task, list_tasks, quote, read_task, split_thread,
-                              task_block, thread_path, write_task)
+from work_sheet.vault import (append_block, block_summary, create_task, list_tasks, quote, raw_dir, read_task,
+                              split_thread, task_block, thread_path, write_task)
 
 log = logging.getLogger(__name__)
 
@@ -27,28 +27,30 @@ OUTPUT_FORMAT = """Reply with one JSON object and nothing else:
 {"action": "register | ignore | ask_human",
  "reason": "…",
  "question": "… (ask_human only)",
- "tasks": [{"role": "librarian", "op": "ingest", "title": "…", "brief": "…", "capture": ["url or path"],
-            "capture_mode": "all", "project": null, "parent": null, "grant": [], "proposal": null}]}
+ "tasks": [{"skill": "<one of the skills above>", "title": "…", "brief": "…", "capture": ["url or path"],
+            "capture_mode": "all", "project": null, "parent": null, "grant": [], "proposal": null,
+            "force": false}]}
 ```
 
-Optional task fields: `capture_mode` is `all` (default: any failed item blocks the task) or `any` (run with
-whatever could be captured); `grant` lists extra files the role may write (only paths its role allows to be
-granted); `proposal` is the proposal page that justifies granting a file that already exists."""
+Each task names the `skill` to run; the role that runs it follows from the skill. Optional task fields:
+`capture_mode` is `all` (default: any failed item blocks the task) or `any` (run with whatever could be
+captured); `grant` lists extra files the role may write (only paths its role allows to be granted);
+`proposal` is the proposal page that justifies granting a file that already exists; `force: true` processes
+material again even if it was already ingested."""
 
 
 class InvalidDecision(Exception):
     pass
 
 
-def build_prompt(cfg: Config, path: str, handled: str, new: str, existing: list[dict],
+def build_prompt(cfg: Config, path: str, handled: str, new: str, existing: list[dict], projects: str | None,
                  finished: str | None = None) -> str:
-    projects = cfg.clone / "projects" / "_index.md"
     tasks = "\n".join(
-        f"- {t['id']} · {t['role']} · {t['status']} · {t['title']}"
+        f"- {t['id']} · {t.get('skill') or '-'}（{t['role']}） · {t['status']} · {t['title']}"
         + (f" · project: {t['project']}" if t.get("project") else "")
         + "".join(f"\n  - {p}" for p in t.get("outputs") or [])
         for t in existing)
-    roles = "\n".join(f"- {r.id}: {r.description}" for r in cfg.roles.values() if r.id != "dispatcher")
+    skills = "\n".join(f"- {s.name}（{s.role}）：{s.description}" for s in cfg.dispatchable())
     finished_section = f"\n# Finished task\n\n{finished}\n" if finished else ""
     return f"""# Thread
 
@@ -68,11 +70,11 @@ Path: {path}
 {finished_section}
 # Projects
 
-{projects.read_text().strip() if projects.exists() else "(none)"}
+{projects.strip() if projects else "(none)"}
 
-# Roles
+# Skills
 
-{roles}
+{skills}
 
 # Routing rules
 
@@ -126,9 +128,15 @@ def parse_decision(stdout: str, cfg: Config, existing: list[dict], relay_parent:
     for i, task in enumerate(tasks, 1):
         if not isinstance(task, dict):
             raise InvalidDecision(f"任务 {i} 不是 JSON 对象")
-        role = task.get("role")
-        if role not in cfg.roles or role == "dispatcher":
-            raise InvalidDecision(f"任务 {i} 的角色 {role!r} 不存在")
+        skill = next((s for s in cfg.dispatchable() if s.name == task.get("skill")), None)
+        if skill is None:
+            valid = "、".join(sorted(s.name for s in cfg.dispatchable()))
+            raise InvalidDecision(f"任务 {i} 的 skill {task.get('skill')!r} 不存在，可用的有：{valid}")
+        if task.get("role") is not None and task["role"] != skill.role:
+            raise InvalidDecision(f"skill {skill.name} 属于角色 {skill.role}")
+        role = task["role"] = skill.role
+        if not isinstance(task.get("force", False), bool):
+            raise InvalidDecision(f"任务 {i} 的 force 必须是 true 或 false")
         if not nonempty_str(task.get("title")) or not nonempty_str(task.get("brief")):
             raise InvalidDecision(f"任务 {i} 的 title 和 brief 不能为空")
         if len(task["brief"]) > MAX_BRIEF:
@@ -145,8 +153,8 @@ def parse_decision(stdout: str, cfg: Config, existing: list[dict], relay_parent:
         if project is not None and not (nonempty_str(project) and not set(project) & {"/", "\\"}
                                         and not project.startswith(".")):
             raise InvalidDecision(f"任务 {i} 的 project 必须是不含 / 或 \\、不以 . 开头的名称")
-        if cfg.roles[role].needs_project and project is None:
-            raise InvalidDecision(f"角色 {role} 需要指定 project")
+        if skill.needs_project and project is None:
+            raise InvalidDecision(f"skill {skill.name} 需要指定 project")
         grant = task.get("grant") or []
         if not isinstance(grant, list) or not all(nonempty_str(g) for g in grant):
             raise InvalidDecision(f"任务 {i} 的 grant 必须是路径列表")
@@ -176,7 +184,9 @@ def new_run_dir(cfg: Config) -> Path:
     return cfg.runs / f"dispatch-{max(numbers, default=0) + 1}"
 
 
-def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict], relay_parent: str | None = None) -> dict:
+def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict],
+                   relay_parent: str | None = None) -> dict | None:
+    """The validated decision; ask_human when the output is invalid twice; None when the runner itself fails."""
     role = cfg.roles["dispatcher"]
     error = None
     for _ in range(2):
@@ -185,11 +195,12 @@ def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict], relay_parent:
         with tempfile.TemporaryDirectory(prefix="worksheet-") as cwd:
             code, stdout = run_cli(cfg.runners[role.runner], role.prompt, prompt, Path(cwd),
                                    new_run_dir(cfg), role.timeout_minutes * 60)
+        if code != 0:
+            # An outage, not a routing problem: create nothing and let the next tick try again.
+            log.warning("dispatcher runner failed (%s); will retry next tick",
+                        "timeout" if code is None else f"exit {code}")
+            return None
         try:
-            if code is None:
-                raise InvalidDecision("运行超时")
-            if code:
-                raise InvalidDecision(f"运行失败（退出码 {code}）")
             return parse_decision(stdout, cfg, existing, relay_parent)
         except InvalidDecision as e:
             error = str(e)
@@ -197,19 +208,35 @@ def ask_dispatcher(cfg: Config, prompt: str, existing: list[dict], relay_parent:
     return {"action": "ask_human", "reason": error, "question": f"调度失败：{error}"}
 
 
-def register(root: Path, stem: str, task: dict) -> tuple[dict, str]:
+def ingested_sources(root: Path) -> dict[str, str]:
+    """raw entry dir -> name of the wiki/sources page whose `raw` points at it."""
+    pages = {}
+    for page in sorted((root / "wiki" / "sources").glob("*.md")):
+        pages.setdefault(raw_dir((frontmatter_of(page.read_text()) or {}).get("raw")), page.stem)
+    return pages
+
+
+def register(cfg: Config, stem: str, task: dict) -> tuple[dict, str]:
     """Capture the task's material and create its note; return (meta, block summary)."""
+    root = cfg.clone
     items, mode = task.get("capture", []), task["capture_mode"]
     context, failed, blocked = capture_all(items, root, mode)
+    status, summary, event = ("blocked", blocked, f"阻塞：{blocked}") if blocked else ("ready", None, None)
+    if not blocked and context and cfg.skills[task["skill"]].dedupe == "source" and not task.get("force"):
+        sources = ingested_sources(root)
+        if all(d in sources for d in context):
+            pages = "、".join(dict.fromkeys(f"[[{sources[d]}]]" for d in context))
+            status = "done"
+            summary = event = f"这份材料已经收录过：{pages}。如需重新整理，请说明要重做。"
     extra = {"capture_mode": mode}
     if failed and not blocked:
         extra["capture_failed"] = failed
-    extra |= {k: task[k] for k in ("grant", "proposal") if task.get(k)}
-    meta = create_task(root, title=task["title"].strip(), status="blocked" if blocked else "ready",
-                       role=task["role"], op=str(task.get("op") or ""), project=task.get("project"),
-                       thread_stem=stem, brief=task["brief"].strip(), capture=items, context=context,
-                       blocked_reason=blocked, parent=task.get("parent"), depth=task.get("depth", 0), **extra)
-    return meta, blocked or meta["title"]
+    extra |= {k: task[k] for k in ("force", "grant", "proposal") if task.get(k)}
+    meta = create_task(root, title=task["title"].strip(), status=status, role=task["role"], skill=task["skill"],
+                       project=task.get("project"), thread_stem=stem, brief=task["brief"].strip(), capture=items,
+                       context=context, event=event, parent=task.get("parent"), depth=task.get("depth", 0),
+                       **extra)
+    return meta, summary or meta["title"]
 
 
 def apply_decision(cfg: Config, path: str, decision: dict, note_on_ignore: bool = True) -> list[str]:
@@ -228,13 +255,13 @@ def apply_decision(cfg: Config, path: str, decision: dict, note_on_ignore: bool 
     elif action == "ask_human":
         question = decision["question"].strip()
         meta = create_task(root, title=question.splitlines()[0][:60], status="blocked", role="dispatcher",
-                           op="ask", project=None, thread_stem=stem, brief=question, capture=[], context=[],
-                           blocked_reason=question)
+                           skill="ask", project=None, thread_stem=stem, brief=question, capture=[], context=[],
+                           event=f"阻塞：{question}")
         text = append_block(text, task_block(meta["id"], "dispatcher", "blocked", question))
         ids.append(meta["id"])
     else:
         for task in decision["tasks"]:
-            meta, summary = register(root, stem, task)
+            meta, summary = register(cfg, stem, task)
             text = append_block(text, task_block(meta["id"], meta["role"], meta["status"], summary))
             ids.append(meta["id"])
     page.write_text(text)
@@ -245,20 +272,27 @@ def thread_tasks(root: Path, stem: str) -> list[dict]:
     return [t for t in list_tasks(root) if t.get("thread") == f"[[{stem}]]"]
 
 
+def projects_text(root: Path) -> str | None:
+    path = root / "projects" / "_index.md"
+    return path.read_text() if path.exists() else None
+
+
 def dispatch_thread(cfg: Config, path: str) -> None:
     root = cfg.clone
     stem = PurePosixPath(path).stem
     handled, new = split_thread((root / path).read_text())
     existing = thread_tasks(root, stem)
-    decision = ask_dispatcher(cfg, build_prompt(cfg, path, handled, new, existing), existing)
+    decision = ask_dispatcher(cfg, build_prompt(cfg, path, handled, new, existing, projects_text(root)), existing)
+    if decision is None:
+        return
     ids = apply_decision(cfg, path, decision)
     commit(cfg, f"dispatch: {stem}", "dispatcher", ids)
     if not push(cfg):
         log.warning("dispatch of %s dropped by a conflict; the page stays pending", path)
 
 
-def dispatch_relay(cfg: Config, task_id: str) -> None:
-    """Ask the dispatcher what follows from a finished task's report."""
+def dispatch_relay(cfg: Config, task_id: str) -> bool:
+    """Ask the dispatcher what follows from a finished task's report; False if the dispatcher was unavailable."""
     root = cfg.clone
     meta, body = read_task(root, task_id)
     path = thread_path(meta)
@@ -268,6 +302,7 @@ def dispatch_relay(cfg: Config, task_id: str) -> None:
     capture_requests = "\n".join(f"- {c}" for c in meta.get("report_capture") or []) or "(none)"
     handoff = meta.get("report_handoff")
     finished = f"""- id: {task_id}
+- skill: {meta.get('skill') or '-'}
 - role: {meta['role']}
 - title: {meta['title']}
 
@@ -282,11 +317,14 @@ def dispatch_relay(cfg: Config, task_id: str) -> None:
 ## Capture requests
 
 {capture_requests}"""
-    prompt = build_prompt(cfg, path, handled, "(none)", existing, finished)
+    prompt = build_prompt(cfg, path, handled, "(none)", existing, projects_text(root), finished)
     decision = ask_dispatcher(cfg, prompt, existing, relay_parent=task_id)
+    if decision is None:
+        return False
     ids = apply_decision(cfg, path, decision, note_on_ignore=False)
     meta["relay"] = "done"
     write_task(root, meta, body)
     commit(cfg, f"relay: {task_id}", "dispatcher", [task_id, *ids])
     if not push(cfg):
         log.warning("relay of %s dropped by a conflict; it stays pending", task_id)
+    return True
