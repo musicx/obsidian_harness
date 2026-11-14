@@ -4,13 +4,13 @@ description: 基于项目记录（现状、日志、决策、以往汇报）写�
 metadata:
   role: writer
   needs_project: "true"
-  uses: vault-conventions plain-writing
+  uses: vault-conventions writing
 ---
 # 写项目汇报
 
 读者没有跟过这个项目的日常，读这份汇报是为了知道现在怎么样、有什么需要他做。
 
-**完成的标准：** `projects/<项目>/reports/` 下有一份新汇报；里面每条事实都能在项目记录里找到并带链接；"待裁决的不一致"和需要决策的事项没有被遗漏或淡化；对照 plain-writing 自查过。
+**完成的标准：** `projects/<项目>/reports/` 下有一份新汇报；里面每条事实都能在项目记录里找到并带链接；"待裁决的不一致"和需要决策的事项没有被遗漏或淡化；对照 writing 自查过。
 
 **边界：** 只写 `projects/<项目>/reports/`。现状、日志、决策是别的角色维护的，只读。项目记录里没有的内容不写——包括你觉得"应该有"的背景、原因和预测。
 
@@ -21,7 +21,7 @@ metadata:
 3. **读记录。** `status.md` 全文；`log.md` 中范围内的条目；这段时间涉及的决策页。
 4. **列要点。** 在 `_scratch/claims.md` 里先列出打算写进汇报的每条事实及其出处（这个文件不会被保存）。找不到出处的不写。然后挑出读者最需要知道的三到五件事。
 5. **成文**，格式见下。
-6. **自查。** 对照 `_skills/plain-writing/SKILL.md` 过一遍；再逐条核对数字、日期、人名与项目记录一致。
+6. **自查。** 对照 `_skills/writing/SKILL.md` 第 6 步过一遍，体裁参考读 `_skills/writing/references/report.md`；再逐条核对数字、日期、人名与项目记录一致。
 
 ## 汇报的结构
 

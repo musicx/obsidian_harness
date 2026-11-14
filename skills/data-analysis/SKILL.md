@@ -3,7 +3,7 @@ name: data-analysis
 description: 用只读查询回答一个数据问题：从数据字典找表、核对口径、写查询、给出结论，写成带完整查询的分析笔记。用户问"某指标现在是多少、处于什么分位、谁最高、怎么变化"这类要查数据库才能回答的问题，或要一份描述性的数据分析时使用；登记时在 resources 里写明需要哪个数据源。问题能从知识库或项目记录里回答的用 answer；只想弄清某张表的结构和坑用 dataset-profile。
 metadata:
   role: analyst
-  uses: vault-conventions plain-writing
+  uses: vault-conventions writing
 ---
 # 回答数据问题
 
@@ -27,7 +27,7 @@ metadata:
 
 7. **更新数据字典。** 这次用到的表：字典里没有页面的，建一页；已有页面但你发现了新的坑或更好的用法，更新它。格式见 `_skill/references/dataset-page.md`。
 
-8. 对照 `_skills/plain-writing/SKILL.md` 和下面的清单自查。
+8. 对照 `_skills/writing/SKILL.md` 第 6 步（体裁参考读 `_skills/writing/references/report.md`）和下面的清单自查。
 
 ## 分析笔记的格式
 

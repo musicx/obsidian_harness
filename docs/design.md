@@ -251,7 +251,7 @@ assets/                图片
 - **先列要点再成文。** 动笔前在 `_scratch/` 里列出每个论断和它的出处，分清"记录明确写了""推断""记录之间有矛盾"；找不到出处的不写。`_scratch/` 不会被保存。
 - **查不到就说没有。** 目录和全文都查过之后，才能说"知识库里没有"，并写明查过什么。
 - **分歧照实呈现。** 项目里"待裁决的不一致"必须出现在汇报和答案里，不能自己选一个说法。
-- **文字规范**（共用 skill `plain-writing`）：先说结论；每句都带信息；交稿前对照一张常见毛病表自查（摆架势、结尾升华、凑三项、空泛的重要性、借来的权威、装饰性格式）；改文字不改事实。
+- **文字规范**（共用 skill `writing`）：成文后按"结构、句子、事实"的顺序自查三遍，先查结构层的机器腔（补出来的因果、被抬高的确定程度、对称的章节、文章评论自己），再对照语言参考改句子，最后逐项核对事实；改文字不改事实。体裁（汇报、知识文档、长文）和语言（中文、英文）的细则放在它的 `references/` 下，各写作类 skill 指定读哪一份。
 - **用户的口吻**：`practice/写作风格.md` 存在时，writer 先读它并以它为准。它是一篇普通的我方文档，由人写或口述。
 - **修改意见出新版本**：汇报改稿新建 ` v2`，旧版保留。
 - **好的产出可以回流**：人说"把这篇综述收进知识库"，它就作为一份材料被采集和收录。系统不会自己把自己的产出升格为知识。
@@ -303,7 +303,7 @@ metadata:
 | `data-analysis` | analyst | —（数据字典 + 查询工具） | D1 D2 D4 |
 | `dataset-profile` | analyst | —（查询工具） | D3 |
 | `vault-conventions`（共用） | — | — | 页面写法、frontmatter、命名、出处、分歧标记 |
-| `plain-writing`（共用） | — | — | 文字规范与自查表 |
+| `writing`（共用） | — | — | 写作流程、三遍自查、事实纪律；按体裁和语言分开的参考 |
 
 ### 9.3 注入方式
 
@@ -696,4 +696,4 @@ oracle-clickhouse = "服务器 ClickHouse：A 股日线与参考数据、美股�
 
 位于 `~/Code/repos/skills/`（只读参考，没有运行其中的任何脚本）：`obsidian-skills`、`claude-obsidian`、`karpathy-llm-wiki`、`wiki-skills`、`anthropic-skills`、`qmd`、`humanizer`、`axton-obsidian-visual-skills`、`superpowers`、`Deep-Research-skills`、`llm-wiki-skill`。此前已有并一同参考的：`~/Code/repos/llmwiki/` 下的八个 LLM wiki 实现，以及 `compound-engineering-plugin`、`baoyu-skills`、`khazix-skills`、`Waza`、`gstack`、`gsd-2`、`everything-claude-code`。
 
-没有把任何第三方 skill 原样装进项目：它们大多依赖 shell 或特定工具的功能，而本项目的角色只有文件工具。`vault-conventions` 里的 Obsidian 语法和 `plain-writing` 的自查表分别改编自 MIT 许可的 `obsidian-skills` 和 `humanizer` / `ce-noslop`，已在各自的 frontmatter 里注明。将来增加能执行脚本的角色时，`anthropic-skills` 的文档类 skill 和 `axton-obsidian-visual-skills` 的图表 skill 可以直接挂载。
+没有把任何第三方 skill 原样装进项目：它们大多依赖 shell 或特定工具的功能，而本项目的角色只有文件工具。`vault-conventions` 里的 Obsidian 语法改编自 MIT 许可的 `obsidian-skills`，已在 frontmatter 里注明；`writing` 综合了多个来源，来源和取舍记在它的 `references/sources.md`。将来增加能执行脚本的角色时，`anthropic-skills` 的文档类 skill 和 `axton-obsidian-visual-skills` 的图表 skill 可以直接挂载。

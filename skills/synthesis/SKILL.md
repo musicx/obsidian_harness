@@ -4,7 +4,7 @@ description: 把知识库里关于一个主题的多个页面综合成一篇给�
 metadata:
   role: writer
   context: candidates names
-  uses: vault-conventions plain-writing
+  uses: vault-conventions writing
 ---
 # 写专题综述
 
@@ -21,7 +21,7 @@ metadata:
 3. **列要点。** 在 `_scratch/claims.md` 里列出要写的每个论断、它的出处、属于哪一类：共识（多个来源一致）、单一来源的说法、有分歧、推断。这个文件不会被保存。
 4. **定主线。** 用一句话写出这篇综述的核心结论。写不出来说明材料还没读透，回到第 2 步。然后排出三到六个小节，每节回答读者的一个问题，前一节是后一节的铺垫。
 5. **成文。** 按主线写，不按页面逐个复述。
-6. **自查。** 对照 `_skills/plain-writing/SKILL.md`；再核对每个数字、公式、名字与知识页一致。
+6. **自查。** 对照 `_skills/writing/SKILL.md` 第 6 步，体裁参考读 `_skills/writing/references/knowledge-doc.md`（写分享稿或对外文章的提纲时读 `_skills/writing/references/longform.md`）；再核对每个数字、公式、名字与知识页一致。
 
 ## 综述的格式
 

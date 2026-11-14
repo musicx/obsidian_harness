@@ -5,7 +5,7 @@ metadata:
   role: writer
   context: changes
   read: projects/*/status.md projects/*/log.md
-  uses: vault-conventions plain-writing
+  uses: vault-conventions writing
 ---
 # 写阶段简报
 
@@ -25,7 +25,7 @@ metadata:
    - 项目的 `log.md`：读范围内追加的条目；`status.md` 看"待裁决的不一致"和当前 blocker；
    - `proposals/`：看 `status` 仍是 `proposed` 的。
 4. 挑出最值得用户注意的三件事，放在最前面。挑选标准：改变了已有认识的、出现了分歧的、需要他决定的，优先于"又收录了一篇"。
-5. 成文，对照 `_skills/plain-writing/SKILL.md` 自查。
+5. 成文，对照 `_skills/writing/SKILL.md` 第 6 步自查，体裁参考读 `_skills/writing/references/report.md`。
 
 ## 简报格式
 

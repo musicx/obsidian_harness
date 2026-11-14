@@ -4,7 +4,7 @@ description: 依据知识库和项目记录回答用户的一个问题，每个�
 metadata:
   role: writer
   context: candidates
-  uses: vault-conventions plain-writing
+  uses: vault-conventions writing
 ---
 # 回答问题
 
@@ -33,7 +33,7 @@ metadata:
 5. 决定放哪里：
    - 几句话能说清：直接写进 `_report.md` 的摘要。
    - 需要表格、步骤或超过 300 字：存为 `outputs/YYYY-MM-DD <问题的简短标题>.md`（项目问题存到 `projects/<项目>/reports/`），`_report.md` 里写结论和文件链接。
-6. 对照 `_skills/plain-writing/SKILL.md` 自查。
+6. 自查。存成文件的答案对照 `_skills/writing/SKILL.md` 第 6 步，体裁参考读 `_skills/writing/references/report.md`；只写在 `_report.md` 里的短答案只核对其中的事实纪律。
 
 ## 答案页格式
 
