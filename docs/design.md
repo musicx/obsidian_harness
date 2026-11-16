@@ -378,15 +378,19 @@ ready ──► running ──► done
 
 看板是 Bases 的 Kanban 视图，按 `status` 分列；拖卡片就是改任务笔记的 `status`，同步后引擎当作指令：`failed` / `blocked` → `ready` 是重跑（因采集失败而阻塞的会先重新采集），任意 → `cancelled` 是取消。
 
+人在线程里回应一个 `blocked` 的任务（回答问题、说明阻塞已解决、要求重试）时，调度者登记的新任务以它为 `parent`；新任务完成时，引擎把仍是 `blocked` 的上游任务一并标为 `done`，并在其记录里注明由哪个任务接续完成。
+
 ## 13. runner 与本机设置
 
 角色只写 runner 的逻辑名；逻辑名到具体 CLI 调用的映射在 `config/runners.toml`，其中与机器相关的值用 `${变量名}` 引用环境变量，引擎启动时读取项目根目录的 `.env`（不入库，样本见 `.env.sample`）。
 
 | 逻辑名 | 用途 | 本机绑定 |
 |---|---|---|
-| `small` | 调度者 | pi，无工具 |
-| `strong` | librarian、tracker、writer | pi，只有读写文件的工具 |
+| `small` | 调度者 | pi，除 MCP 外无工具 |
+| `strong` | librarian、tracker、writer | pi，读写文件的工具加 MCP |
 | `web` | researcher | grok，可联网，禁用 shell 和子 agent |
+
+所有角色都可以用 MCP：pi 的各个 runner 打开内置的 MCP 支持，连接本机 `~/.pi/agent/mcp.json` 里的服务；grok 用它自己登记的 MCP 服务。默认放行全部 MCP 工具（`--tools` 里的 `mcp__*`），在使用中逐步收紧成白名单：把 `mcp__*` 换成某个 runner 允许的服务或工具，比如 `mcp__wiki__*`。
 
 | 变量 | 含义 |
 |---|---|
@@ -559,7 +563,7 @@ work_sheet/
 - 数据库层：只读账号，或对可写账号的每个请求强制带 `readonly=1`——这是真正的保证，由数据库执行；
 - 工具层：只接受单条 `SELECT` / `WITH` / `SHOW` / `DESCRIBE` / `EXPLAIN` / `EXISTS`；每次查询有超时，最多返回 200 行；每条执行过的查询连同结果的行数记入运行目录里的查询日志。
 
-工具是一个只用标准库写的小程序，由各机器的系统 Python 启动；数据源在哪、用哪个账号，写在各机器本地的 `datasources.toml` 里（不入库）。引擎只在任务声明了数据源时才把工具挂给 agent，其余角色的运行一律关闭 MCP。
+工具是一个只用标准库写的小程序，由各机器的系统 Python 启动；数据源在哪、用哪个账号，写在各机器本地的 `datasources.toml` 里（不入库）。引擎只在任务声明了数据源时才把这个工具挂给 agent；机器上另外配置的 MCP 服务对所有角色开放（第 13 节）。
 
 第一版不给它执行 Python 的能力：聚合、分位数、窗口计算都在 SQL 里完成，图用 Mermaid。需要 pandas 或绘图库的分析等确有需求时再加一个受限的执行环境。
 

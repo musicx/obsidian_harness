@@ -131,6 +131,33 @@ def test_capture_failure_blocks_task(seeded: Env):
     assert not env.listing.exists()
 
 
+def test_follow_up_that_finishes_closes_the_blocked_task(seeded: Env):
+    env = seeded
+    env.push({"inbox/a.md": "收录 /nonexistent/report.pdf\n"})
+    env.respond(register(capture=["/nonexistent/report.pdf"]))
+    env.tick()
+    env.pull()
+    [blocked] = env.new_tasks()
+    assert blocked["status"] == "blocked"
+
+    src = article(env)
+    env.push({"inbox/a.md": env.text("inbox/a.md") + f"\n文件在这里：{src}，再试一次\n"})
+    retry = register(capture=[str(src)])
+    retry["tasks"][0]["parent"] = blocked["id"]
+    env.respond(retry)
+    env.tick()
+    env.pull()
+
+    first, second = env.new_tasks()
+    assert second["parent"] == first["id"] and second["status"] == "done"
+    assert first["status"] == "done"
+    assert f"完成：由 {second['id']} 接续完成" in env.text(f"tasks/{first['id']}.md")
+    assert f"> [!task] [[{first['id']}]] · librarian · done" in env.text("inbox/a.md")
+    env.tick()  # the next tick sees nothing to reconcile
+    env.pull()
+    assert "状态被手动改为" not in env.text(f"tasks/{first['id']}.md")
+
+
 def test_rebase_conflict_blocks_task(seeded: Env, monkeypatch):
     monkeypatch.setenv("WS_HUMAN", str(seeded.human))
     task = run_failing(seeded, "conflict", monkeypatch)

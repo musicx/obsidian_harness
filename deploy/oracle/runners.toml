@@ -1,11 +1,14 @@
 # Runners for the Oracle Linux host: pi CLI with Claude models, DeepSeek as the fallback when Claude fails.
 # Selected with WORKSHEET_RUNNERS_FILE=deploy/oracle/runners.toml; every command goes through run-as-agent.sh.
 # There is no `web` runner on this host yet, so skills of the researcher role are not offered to the dispatcher.
+# MCP is on for every runner, with all tools of ~/.pi/agent/mcp.json let through (see config/runners.toml).
 
 [runners.small]
 format = "pi-json"
 command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session",
-           "--no-context-files", "--no-skills", "--no-extensions", "--no-mcp", "--no-tools",
+           "--no-context-files", "--no-skills", "--no-extensions",
+           "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search",
+           "--tools", "codemode,tool_search,mcp__*",
            "--model", "${WORKSHEET_SMALL_MODEL}",
            "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
 fallback = "fallback_small"
@@ -13,39 +16,45 @@ fallback = "fallback_small"
 [runners.strong]
 format = "pi-json"
 command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session",
-           "--no-context-files", "--no-skills", "--no-extensions", "--no-mcp",
-           "--tools", "read,grep,find,ls,edit,write",
+           "--no-context-files", "--no-skills", "--no-extensions",
+           "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search",
+           "--tools", "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*",
            "--model", "${WORKSHEET_STRONG_MODEL}", "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
 fallback = "fallback_strong"
 
 [runners.fallback_small]
 format = "pi-json"
 command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session",
-           "--no-context-files", "--no-skills", "--no-extensions", "--no-mcp", "--no-tools",
+           "--no-context-files", "--no-skills", "--no-extensions",
+           "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search",
+           "--tools", "codemode,tool_search,mcp__*",
            "--model", "${WORKSHEET_FALLBACK_MODEL}",
            "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
 
 [runners.fallback_strong]
 format = "pi-json"
 command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session",
-           "--no-context-files", "--no-skills", "--no-extensions", "--no-mcp",
-           "--tools", "read,grep,find,ls,edit,write",
+           "--no-context-files", "--no-skills", "--no-extensions",
+           "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search",
+           "--tools", "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*",
            "--model", "${WORKSHEET_FALLBACK_MODEL}", "--append-system-prompt", "{system_prompt_file}",
            "@{prompt_file}"]
 
-# strong plus the read-only query tool `wsdata` (see config/runners.toml): built-in MCP back on, view config trusted.
+# strong plus the read-only query tool `wsdata` (see config/runners.toml): the view's .pi/mcp.json is trusted.
 [runners.analysis]
 format = "pi-json"
 command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session",
-           "--no-context-files", "--no-skills", "--no-extensions", "-e", "builtin:mcp", "--approve",
-           "--tools", "read,grep,find,ls,edit,write,mcp__wsdata__*",
+           "--no-context-files", "--no-skills", "--no-extensions",
+           "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search", "--approve",
+           "--tools", "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*",
            "--model", "${WORKSHEET_STRONG_MODEL}", "--append-system-prompt", "{system_prompt_file}", "@{prompt_file}"]
 fallback = "fallback_analysis"
 
 [runners.fallback_analysis]
 format = "pi-json"
 command = ["${WORKSHEET_AGENT_WRAPPER}", "{view}", "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session",
-           "--no-context-files", "--no-skills", "--no-extensions", "-e", "builtin:mcp", "--approve",
-           "--tools", "read,grep,find,ls,edit,write,mcp__wsdata__*",
+           "--no-context-files", "--no-skills", "--no-extensions",
+           "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search", "--approve",
+           "--tools", "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*",
            "--model", "${WORKSHEET_FALLBACK_MODEL}", "--append-system-prompt", "{system_prompt_file}",
            "@{prompt_file}"]

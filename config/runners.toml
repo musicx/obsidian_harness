@@ -4,12 +4,19 @@
 # config directory (WORKSHEET_CONFIG_DIR). Roles stay unchanged either way.
 # Placeholders filled per run: {system_prompt_file}, {system_prompt}, {prompt_file}, {view}.
 # `format` tells the engine how to read stdout (text | pi-json | grok-json); the JSON formats report token usage.
+#
+# MCP: every pi runner loads the built-in MCP support and the servers in this machine's ~/.pi/agent/mcp.json.
+# --no-extensions also turns off pi's built-in extensions, so -e brings back mcp, codemode (reaches servers with
+# the default `codemode` exposure) and tool-search (`deferred` exposure); with an explicit --tools list those two
+# must be named or they stay off. `mcp__*` lets every MCP tool through: to whitelist, replace it with the
+# servers or tools a runner may use, e.g. `mcp__wiki__*,mcp__jira__get_*`.
 
 [runners.small]
 format = "pi-json"
 command = [
   "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
-  "--no-mcp", "--no-tools",
+  "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search",
+  "--tools", "codemode,tool_search,mcp__*",
   "--model", "${WORKSHEET_SMALL_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
   "@{prompt_file}",
@@ -19,20 +26,21 @@ command = [
 format = "pi-json"
 command = [
   "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
-  "--no-mcp", "--tools", "read,grep,find,ls,edit,write",
+  "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search",
+  "--tools", "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*",
   "--model", "${WORKSHEET_STRONG_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
   "@{prompt_file}",
 ]
 
 # strong plus the read-only query tool `wsdata`, which the engine mounts in the view's .pi/mcp.json for tasks
-# that name a data source. --no-extensions also turns off pi's built-in MCP support, so `-e builtin:mcp` brings
-# it back; --approve trusts the view's project config so .pi/mcp.json is read in print mode.
+# that name a data source; --approve trusts the view's project config so .pi/mcp.json is read in print mode.
 [runners.analysis]
 format = "pi-json"
 command = [
   "${WORKSHEET_PI_BIN}", "-p", "--mode", "json", "--no-session", "--no-context-files", "--no-skills", "--no-extensions",
-  "-e", "builtin:mcp", "--approve", "--tools", "read,grep,find,ls,edit,write,mcp__wsdata__*",
+  "-e", "builtin:mcp", "-e", "builtin:codemode", "-e", "builtin:tool-search", "--approve",
+  "--tools", "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*",
   "--model", "${WORKSHEET_STRONG_MODEL}",
   "--append-system-prompt", "{system_prompt_file}",
   "@{prompt_file}",

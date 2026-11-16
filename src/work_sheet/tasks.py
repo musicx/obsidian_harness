@@ -21,7 +21,7 @@ from work_sheet.lint import frontmatter_of, lint, normalize_sql
 from work_sheet.runner import run_runner
 from work_sheet.usage import Ledger, RunResult, add_up, describe
 from work_sheet.vault import (add_log, brief_of, is_generated, now, page_link, parse_frontmatter, raw_dir,
-                              read_task, thread_path, update_block, write_task)
+                              read_task, set_block_status, task_file, thread_path, update_block, write_task)
 
 log = logging.getLogger(__name__)
 
@@ -339,6 +339,21 @@ def claim(cfg: Config, task_id: str, role: Role) -> tuple[dict, str] | None:
     return None
 
 
+def close_blocked_parents(root: Path, meta: dict) -> None:
+    """A done task that continues blocked tasks (the human answered or fixed what blocked them) resolves them:
+    mark its blocked parent chain done, so nobody has to move those cards by hand."""
+    parent = meta.get("parent")
+    while parent and task_file(root, parent).exists():
+        pmeta, pbody = read_task(root, parent)
+        if pmeta.get("status") != "blocked":
+            return
+        pmeta["status"] = "done"
+        write_task(root, pmeta, add_log(pbody, f"完成：由 {meta['id']} 接续完成"))
+        page = root / thread_path(pmeta)
+        page.write_text(set_block_status(page.read_text(), parent, pmeta["role"], "done"))
+        parent = pmeta.get("parent")
+
+
 def run_task(cfg: Config, task_id: str) -> None:
     root = cfg.clone
     meta, body = read_task(root, task_id)
@@ -370,6 +385,7 @@ def run_task(cfg: Config, task_id: str) -> None:
         if extras:
             meta |= {f"report_{k}": v for k, v in extras.items()}
             meta["relay"] = "pending"
+        close_blocked_parents(root, meta)
         # Only the coordinator writes the log and generated files; a worker's task is logged by its post step.
         meta["logged"] = cfg.is_coordinator
         if cfg.is_coordinator:

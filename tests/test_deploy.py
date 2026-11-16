@@ -165,14 +165,17 @@ def test_oracle_config_loads(env: Env, monkeypatch):
     assert {n: r.fallback for n, r in cfg.runners.items()} == {
         "small": "fallback_small", "strong": "fallback_strong", "fallback_small": None, "fallback_strong": None,
         "analysis": "fallback_analysis", "fallback_analysis": None}
-    assert "mcp__wsdata__*" in " ".join(cfg.runners["analysis"].command)
+    assert "--approve" in cfg.runners["analysis"].command
     assert cfg.datasources["oracle-clickhouse"] | {} == {
         "kind": "clickhouse", "url": "http://127.0.0.1:8123", "database": "db_stock", "user": "web_ro",
         "password_file": "/etc/worksheet/ch-password", "force_readonly": False, "max_rows": 200, "timeout_seconds": 60}
     for r in cfg.runners.values():
         assert r.command[:3] == ["/opt/worksheet/deploy/oracle/run-as-agent.sh", "{view}", "pi"]
     assert "deepseek/deepseek-chat" in cfg.runners["fallback_strong"].command
-    assert "--no-tools" in cfg.runners["small"].command and "read,grep,find,ls,edit,write" in cfg.runners["strong"].command
+    assert "codemode,tool_search,mcp__*" in cfg.runners["small"].command
+    assert "read,grep,find,ls,edit,write,codemode,tool_search,mcp__*" in cfg.runners["strong"].command
+    for r in cfg.runners.values():
+        assert "--no-mcp" not in r.command and "builtin:mcp" in r.command
     assert {n: (str(f.source), f.cadence, f.since) for n, f in cfg.feeds.items()} == {
         "x-digest": ("/srv/digest/www/data", "daily", "2026-11-01"),
         "build": ("/srv/digest/www/data/build", "daily", "2026-11-01"),
