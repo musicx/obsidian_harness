@@ -189,6 +189,21 @@ sudo systemctl enable --now worksheet
 - `.env` 里的 `WORKSHEET_RUNNERS_FILE` 指向 [deploy/oracle/runners.toml](deploy/oracle/runners.toml)，那里定义了主模型和备用模型。
 - 更新代码：`git pull && sudo systemctl restart worksheet`。看日志：`sudo journalctl -u worksheet -n 50`。
 
+### Mac 上常驻
+
+[deploy/mac/com.worksheet.engine.plist](deploy/mac/com.worksheet.engine.plist) 是一个 launchd 用户级任务：登录后自动启动引擎，进程退出后 30 秒内重启。里面的项目路径和 `PATH` 是按一台具体机器写的，与你的环境不同就先改。launchd 不读 shell 配置，`PATH` 必须能找到 uv、git、pi、grok 和 npx。
+
+```bash
+cp deploy/mac/com.worksheet.engine.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.worksheet.engine.plist
+```
+
+- 看状态：`launchctl print gui/$(id -u)/com.worksheet.engine | grep -E 'state|pid'`。
+- 看日志：任务记录在 `.state/<workspace>/engine.log`，启动失败和崩溃信息在 `.state/launchd.log`。
+- 更新代码后重启：`launchctl kickstart -k gui/$(id -u)/com.worksheet.engine`。
+- 停止并取消常驻：`launchctl bootout gui/$(id -u)/com.worksheet.engine`。
+- 正在执行的任务会被重启打断，下一轮记为失败；在看板上拖回 `ready` 即可重跑。
+
 ## 多台机器协作
 
 数据在哪台机器上，任务就在哪台机器上跑。[config/engines.toml](config/engines.toml) 登记每台机器：

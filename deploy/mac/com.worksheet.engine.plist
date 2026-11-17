@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd user agent that keeps the engine running on this Mac (reads .env from WorkingDirectory).
+  Install: cp deploy/mac/com.worksheet.engine.plist ~/Library/LaunchAgents/ &&
+           launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.worksheet.engine.plist
+  PATH must reach uv, git, pi, grok and npx, since launchd does not read the shell profile.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.worksheet.engine</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/uv</string>
+    <string>run</string>
+    <string>worksheet</string>
+    <string>run</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/ericliu/Code/projects/work_sheet</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/ericliu/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/ericliu/Code/projects/work_sheet/.state/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/ericliu/Code/projects/work_sheet/.state/launchd.log</string>
+</dict>
+</plist>
