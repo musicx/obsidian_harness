@@ -28,7 +28,7 @@
 | git、[uv](https://docs.astral.sh/uv/) | 引擎用 Python 3.13，由 uv 管理 |
 | Node.js 22 以上 | 抓取网页正文用到 `npx defuddle`；pi 也需要 |
 | [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) | 执行 agent 的 CLI：`npm install -g @earendil-works/pi-coding-agent`，并登录至少一个模型服务 |
-| Grok Build CLI（可选） | 只有"联网搜集资料"用到；没有它其余功能照常 |
+| DeepSeek API（可选） | 只有"联网搜集资料"用到：搜索和打开网页走 DeepSeek 的 Search / Fetch API，用 pi 里登录的 DeepSeek key；没有它其余功能照常 |
 | Obsidian 1.14 以上 | 看板和首页视图用到核心功能 Bases |
 | 一个私有的 GitHub 仓库 | 用作 vault |
 
@@ -101,7 +101,7 @@ cp .env.sample .env
 | `WORKSHEET_VAULT_REMOTE` | vault 仓库的地址；这台机器要能推送到它 |
 | `WORKSHEET_SMALL_MODEL` | 调度者用的模型，便宜的小模型即可 |
 | `WORKSHEET_STRONG_MODEL` | 执行任务用的模型 |
-| `WORKSHEET_WEB_MODEL` | 联网搜集用的模型（用 Grok Build 时） |
+| `WORKSHEET_WEB_MODEL` | 联网搜集用的模型 |
 | `WORKSHEET_ENGINE_ID` | 这台机器在 `config/engines.toml` 里的名字，见[多台机器协作](#多台机器协作) |
 | `WORKSHEET_TIMEZONE` | 可选；引擎所在机器和你不在同一时区时填你的时区 |
 
@@ -191,7 +191,7 @@ sudo systemctl enable --now worksheet
 
 ### Mac 上常驻
 
-[deploy/mac/com.worksheet.engine.plist](deploy/mac/com.worksheet.engine.plist) 是一个 launchd 用户级任务：登录后自动启动引擎，进程退出后 30 秒内重启。里面的项目路径和 `PATH` 是按一台具体机器写的，与你的环境不同就先改。launchd 不读 shell 配置，`PATH` 必须能找到 uv、git、pi、grok 和 npx。
+[deploy/mac/com.worksheet.engine.plist](deploy/mac/com.worksheet.engine.plist) 是一个 launchd 用户级任务：登录后自动启动引擎，进程退出后 30 秒内重启。里面的项目路径和 `PATH` 是按一台具体机器写的，与你的环境不同就先改。launchd 不读 shell 配置，`PATH` 必须能找到 uv、git、pi 和 npx。
 
 ```bash
 cp deploy/mac/com.worksheet.engine.plist ~/Library/LaunchAgents/

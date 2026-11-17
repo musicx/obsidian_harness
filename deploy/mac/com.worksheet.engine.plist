@@ -3,7 +3,7 @@
   launchd user agent that keeps the engine running on this Mac (reads .env from WorkingDirectory).
   Install: cp deploy/mac/com.worksheet.engine.plist ~/Library/LaunchAgents/ &&
            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.worksheet.engine.plist
-  PATH must reach uv, git, pi, grok and npx, since launchd does not read the shell profile.
+  PATH must reach uv, git, pi and npx, since launchd does not read the shell profile.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

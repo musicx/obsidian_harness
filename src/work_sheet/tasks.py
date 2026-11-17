@@ -31,6 +31,7 @@ ENGINE_FILES = {"_brief.md", "_report.md", "_feedback.md"}
 REPAIR_PROMPT = "上一次的产出没有通过检查，问题列在 _feedback.md。只修正这些问题，不要改动其他内容；修正后更新 _report.md。"
 ENGINE_DIRS = ("_skill/", "_skills/", "_context/", "_scratch/", ".pi/")  # _scratch/: the agent's working notes
 DATATOOL = Path(__file__).with_name("datatool.py")
+WEBTOOL = Path(__file__).with_name("webtool.py")
 PROTECTED = ("raw/", "tasks/", "inbox/", "briefings/")
 MAX_SUMMARY = 600
 CONFLICT = "与远端的改动冲突，产出未导入"
@@ -98,18 +99,25 @@ def render_brief(meta: dict, body: str, thread: str, write: list[str], shared: l
                         write="、".join(write), brief=brief_of(body))
 
 
-def mount_datatool(cfg: Config, view: Path, sources: list[str]) -> None:
-    """Give the run the read-only query tool for these data sources (pi reads the view's .pi/mcp.json)."""
-    scratch = view / "_scratch"
-    scratch.mkdir(exist_ok=True)
-    config = scratch / "datatool.json"
-    config.write_text(json.dumps({"sources": {name: cfg.datasources[name] for name in sources},
-                                  "log": str(scratch / "queries.jsonl")}, ensure_ascii=False, indent=2))
-    (view / ".pi").mkdir(exist_ok=True)
-    server = {"command": os.environ.get("WORKSHEET_DATATOOL_PYTHON", "python3"), "args": [str(DATATOOL)],
-              # direct: declared to the model like a built-in tool, so a print-mode run can call it
-              "env": {"WS_DATATOOL_CONFIG": str(config)}, "exposure": "direct"}
-    (view / ".pi" / "mcp.json").write_text(json.dumps({"mcpServers": {"wsdata": server}}, indent=2))
+def mount_tools(cfg: Config, view: Path, sources: list[str], web: bool) -> None:
+    """Give the run the read-only query tool for these data sources and, for a web role, web search and fetch
+    (pi reads the view's .pi/mcp.json)."""
+    python = os.environ.get("WORKSHEET_DATATOOL_PYTHON", "python3")
+    servers = {}
+    if sources:
+        scratch = view / "_scratch"
+        scratch.mkdir(exist_ok=True)
+        config = scratch / "datatool.json"
+        config.write_text(json.dumps({"sources": {name: cfg.datasources[name] for name in sources},
+                                      "log": str(scratch / "queries.jsonl")}, ensure_ascii=False, indent=2))
+        # direct: declared to the model like a built-in tool, so a print-mode run can call it
+        servers["wsdata"] = {"command": python, "args": [str(DATATOOL)], "env": {"WS_DATATOOL_CONFIG": str(config)},
+                             "exposure": "direct"}
+    if web:
+        servers["wsweb"] = {"command": python, "args": [str(WEBTOOL)], "exposure": "direct"}
+    if servers:
+        (view / ".pi").mkdir(exist_ok=True)
+        (view / ".pi" / "mcp.json").write_text(json.dumps({"mcpServers": servers}, indent=2))
 
 
 def executed_queries(view: Path) -> set[str]:
@@ -242,8 +250,7 @@ def execute(cfg: Config, meta: dict, body: str, role: Role, skill: Skill, runs: 
             shutil.copytree(cfg.skills[name].dir, view / "_skills" / name)
         query = query_text(root, brief_of(body), thread, meta.get("context") or [])
         packs = write_packs(root, skill.context, view / "_context", query) if skill.context else []
-        if sources:
-            mount_datatool(cfg, view, sources)
+        mount_tools(cfg, view, sources, role.web)
         (view / "_brief.md").write_text(render_brief(meta, body, thread, write_patterns, skill.uses, packs, sources))
         prompt = f'{TASK_PROMPT}\n\n<skill name="{skill.name}" dir="_skill">\n{skill.body}\n</skill>\n'
         before = snapshot(view)

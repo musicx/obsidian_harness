@@ -388,9 +388,9 @@ ready ──► running ──► done
 |---|---|---|
 | `small` | 调度者 | pi，除 MCP 外无工具 |
 | `strong` | librarian、tracker、writer | pi，读写文件的工具加 MCP |
-| `web` | researcher | grok，可联网，禁用 shell 和子 agent |
+| `web` | researcher | pi，读写文件的工具、MCP，加上引擎挂载的 `wsweb`（搜索、打开网页，走 DeepSeek 的 Search / Fetch API） |
 
-所有角色都可以用 MCP：pi 的各个 runner 打开内置的 MCP 支持，连接本机 `~/.pi/agent/mcp.json` 里的服务；grok 用它自己登记的 MCP 服务。默认放行全部 MCP 工具（`--tools` 里的 `mcp__*`），在使用中逐步收紧成白名单：把 `mcp__*` 换成某个 runner 允许的服务或工具，比如 `mcp__wiki__*`。
+所有角色都可以用 MCP：pi 的各个 runner 打开内置的 MCP 支持，连接本机 `~/.pi/agent/mcp.json` 里的服务。默认放行全部 MCP 工具（`--tools` 里的 `mcp__*`），在使用中逐步收紧成白名单：把 `mcp__*` 换成某个 runner 允许的服务或工具，比如 `mcp__wiki__*`。
 
 | 变量 | 含义 |
 |---|---|
@@ -398,7 +398,7 @@ ready ──► running ──► done
 | `WORKSHEET_BOT_NAME`、`WORKSHEET_BOT_EMAIL` | 引擎在 vault 里提交时用的身份 |
 | `WORKSHEET_TIMEZONE` | 写进 vault 的所有日期所用的时区；引擎所在机器与人不在同一时区时设置 |
 | `WORKSHEET_STATE_DIR`、`WORKSHEET_CONFIG_DIR`、`WORKSHEET_ROLES_DIR`、`WORKSHEET_SKILLS_DIR`、`WORKSHEET_VAULT_TEMPLATE_DIR` | 引擎状态、配置、角色、skill、vault 模板所在目录 |
-| `WORKSHEET_PI_BIN`、`WORKSHEET_GROK_BIN` | 两个 agent CLI 的可执行文件 |
+| `WORKSHEET_PI_BIN` | agent CLI 的可执行文件 |
 | `WORKSHEET_SMALL_MODEL`、`WORKSHEET_STRONG_MODEL`、`WORKSHEET_WEB_MODEL` | 三个逻辑 runner 各自的模型 |
 
 换环境改 `.env`；runner 的调用方式不同时，用 `WORKSHEET_RUNNERS_FILE` 指向另一份 runner 文件（简报来源同理，用 `WORKSHEET_FEEDS_FILE`）。角色、skill 和 vault 都不用动。凭证由各 CLI 自己管理。
